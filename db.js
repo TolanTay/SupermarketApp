@@ -65,6 +65,20 @@ connection.connect(err => {
       console.log('Admin user already exists:', adminEmail);
     }
   });
+
+  // Ensure avatar column exists for profile pictures
+  connection.query("SHOW COLUMNS FROM users LIKE 'avatar'", (colErr, cols) => {
+    if (colErr) {
+      console.error('Failed to verify avatar column:', colErr);
+      return;
+    }
+    if (!cols || !cols.length) {
+      connection.query("ALTER TABLE users ADD COLUMN avatar VARCHAR(255) DEFAULT NULL", (alterErr) => {
+        if (alterErr) console.error('Failed to add avatar column:', alterErr);
+        else console.log('Avatar column added to users table');
+      });
+    }
+  });
 });
 
 module.exports = connection;

@@ -20,6 +20,10 @@
 
   <main class="container page-shell">
     <h3>Purchase History</h3>
+    <div class="d-flex gap-2 mb-3">
+      <a class="btn btn-outline-primary btn-sm" href="/shopping">Back to shop</a>
+      <a class="btn btn-outline-primary btn-sm" href="/cart">View cart</a>
+    </div>
 
     <% if (messages && messages.error && messages.error.length) { %>
       <div class="alert alert-danger"><%= messages.error[0] %></div>

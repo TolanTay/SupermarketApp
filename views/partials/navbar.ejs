@@ -11,7 +11,9 @@
 
     <% if (!isSimple) { %>
       <nav class="sa-nav-links">
-        <a href="/">Home</a>
+        <% if (!user) { %>
+          <a href="/">Home</a>
+        <% } %>
         <a href="/shopping">Shop</a>
         <a href="/cart">Cart</a>
         <a href="/history">History</a>
@@ -24,7 +26,8 @@
 
       <div class="sa-actions">
         <% if (user) { %>
-          <span class="chip"><%= user.username %> <% if (user.role === 'admin') { %>· Admin<% } %></span>
+          <span class="chip"><%= user.username %> <% if (user.role === 'admin') { %>• Admin<% } %></span>
+          <a class="btn btn-outline-primary" href="/profile">Profile</a>
           <a class="btn btn-outline-primary" href="/logout">Logout</a>
         <% } else { %>
           <a class="btn btn-outline-primary" href="/login">Log in</a>

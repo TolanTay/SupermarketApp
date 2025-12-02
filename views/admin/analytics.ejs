@@ -103,7 +103,7 @@
               <th style="width:120px">Total</th>
               <th style="width:100px">Items</th>
               <th style="width:180px">Date</th>
-              <th style="width:120px">Actions</th>
+              <th style="width:140px">Manage</th>
             </tr>
           </thead>
           <tbody>
@@ -114,11 +114,13 @@
                 <td>$<%= Number(o.total).toFixed(2) %></td>
                 <td><%= o.itemCount %></td>
                 <td><small><%= new Date(o.created_at).toLocaleString() %></small></td>
-                <td class="d-flex gap-2">
-                  <a class="btn btn-sm btn-outline-primary" href="/admin/orders/<%= o.id %>/edit">Edit</a>
-                  <form action="/admin/orders/<%= o.id %>/delete" method="POST" onsubmit="return confirm('Delete order #<%= o.id %> ?');">
-                    <button class="btn btn-sm btn-outline-danger">Delete</button>
-                  </form>
+                <td>
+                  <div class="btn-group btn-group-sm" role="group">
+                    <a class="btn btn-outline-primary" href="/admin/orders/<%= o.id %>/edit">Edit</a>
+                    <form action="/admin/orders/<%= o.id %>/delete" method="POST" onsubmit="return confirm('Delete order #<%= o.id %> ?');" class="m-0">
+                      <button class="btn btn-outline-danger">Delete</button>
+                    </form>
+                  </div>
                 </td>
               </tr>
               <% const items = (orderItems && orderItems[o.id]) ? orderItems[o.id] : []; %>
@@ -134,7 +136,7 @@
                             <th style="width:80px">Qty</th>
                             <th style="width:110px">Unit (after disc)</th>
                             <th style="width:110px">Subtotal</th>
-                            <th style="width:120px">Action</th>
+                            <th style="width:140px">Action</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -146,9 +148,11 @@
                               <td>$<%= Number(it.unit_price_after_discount).toFixed(2) %></td>
                               <td>$<%= Number(it.subtotal).toFixed(2) %></td>
                               <td>
-                                <form action="/admin/orders/<%= o.id %>/items/<%= it.id %>/delete" method="POST" onsubmit="return confirm('Delete item #<%= it.id %> from order #<%= o.id %>?');">
-                                  <button class="btn btn-sm btn-outline-danger">Delete Item</button>
-                                </form>
+                                <div class="btn-group btn-group-sm" role="group">
+                                  <form action="/admin/orders/<%= o.id %>/items/<%= it.id %>/delete" method="POST" onsubmit="return confirm('Delete item #<%= it.id %> from order #<%= o.id %>?');" class="m-0">
+                                    <button class="btn btn-outline-danger">Delete</button>
+                                  </form>
+                                </div>
                               </td>
                             </tr>
                           <% }) %>

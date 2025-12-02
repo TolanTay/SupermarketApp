@@ -56,6 +56,8 @@ app.post('/register', AuthController.register);
 app.get('/login', AuthController.showLogin);
 app.post('/login', AuthController.login);
 app.get('/logout', AuthController.logout);
+app.get('/profile', checkAuthenticated, UserController.profile);
+app.post('/profile', checkAuthenticated, upload.single('avatar'), UserController.updateProfile);
 
 // Products / shopping
 app.get('/shopping', checkAuthenticated, ProductController.getShoppingProducts);
@@ -88,6 +90,8 @@ app.get('/admin/users', checkAuthenticated, checkAdmin, UserController.list);
 app.post('/admin/users/create', checkAuthenticated, checkAdmin, UserController.create);
 app.post('/admin/users/update/:id', checkAuthenticated, checkAdmin, UserController.update);
 app.post('/admin/users/delete/:id', checkAuthenticated, checkAdmin, UserController.delete);
+app.get('/admin/users/:id/profile', checkAuthenticated, checkAdmin, UserController.adminProfile);
+app.post('/admin/users/:id/profile', checkAuthenticated, checkAdmin, upload.single('avatar'), UserController.adminUpdateProfile);
 // Admin order maintenance
 app.post('/admin/orders/:orderId/delete', checkAuthenticated, checkAdmin, OrderController.adminDeleteOrder);
 app.post('/admin/orders/:orderId/items/:itemId/delete', checkAuthenticated, checkAdmin, OrderController.adminDeleteOrderItem);

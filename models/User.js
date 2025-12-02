@@ -16,7 +16,7 @@ const User = {
 
   // Find by username/email and password (used for login)
   findByCredentials: (identifier, password, cb) => {
-    const sql = `SELECT id, username, email, role FROM users
+    const sql = `SELECT id, username, email, role, address, contact, avatar FROM users
                  WHERE (username = ? OR email = ?) AND password = SHA1(?) LIMIT 1`;
     db.query(sql, [identifier, identifier, password], (err, rows) => {
       if (err) return cb(err);
@@ -26,7 +26,7 @@ const User = {
 
   // Find by id
   findById: (id, cb) => {
-    db.query('SELECT id, username, email, role FROM users WHERE id = ? LIMIT 1', [id], (err, rows) => {
+    db.query('SELECT id, username, email, role, address, contact, avatar FROM users WHERE id = ? LIMIT 1', [id], (err, rows) => {
       if (err) return cb(err);
       return cb(null, rows && rows[0] ? rows[0] : null);
     });
@@ -53,6 +53,29 @@ const User = {
       params.push(data.password);
     }
 
+    if (Object.prototype.hasOwnProperty.call(data, 'avatar')) {
+      fields.push('avatar = ?');
+      params.push(data.avatar || null);
+    }
+
+    params.push(id);
+    const sql = `UPDATE users SET ${fields.join(', ')} WHERE id = ?`;
+    db.query(sql, params, cb);
+  },
+
+  // Update without changing role (for self-service profile)
+  updateProfile: (id, data, cb) => {
+    const fields = [];
+    const params = [];
+
+    if (data.username) { fields.push('username = ?'); params.push(data.username); }
+    if (data.email) { fields.push('email = ?'); params.push(data.email); }
+    if (Object.prototype.hasOwnProperty.call(data, 'address')) { fields.push('address = ?'); params.push(data.address || null); }
+    if (Object.prototype.hasOwnProperty.call(data, 'contact')) { fields.push('contact = ?'); params.push(data.contact || null); }
+    if (Object.prototype.hasOwnProperty.call(data, 'avatar')) { fields.push('avatar = ?'); params.push(data.avatar || null); }
+    if (data.password && data.password.trim() !== '') { fields.push('password = SHA1(?)'); params.push(data.password); }
+
+    if (!fields.length) return cb(null); // nothing to update
     params.push(id);
     const sql = `UPDATE users SET ${fields.join(', ')} WHERE id = ?`;
     db.query(sql, params, cb);

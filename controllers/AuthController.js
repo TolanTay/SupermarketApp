@@ -67,7 +67,7 @@ module.exports = {
         req.flash('error', 'Invalid credentials');
         return res.redirect('/login');
       }
-      req.session.user = { id: user.id, username: user.username, role: user.role };
+      req.session.user = { id: user.id, username: user.username, role: user.role, avatar: user.avatar || null };
       return res.redirect('/shopping');
     });
   },
