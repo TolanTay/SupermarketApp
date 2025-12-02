@@ -1,0 +1,36 @@
+<% const isSimple = (typeof simple !== 'undefined') ? simple : false; %>
+<header class="sa-header">
+  <div class="sa-nav">
+    <div class="sa-brand">
+      <div class="sa-brand-mark">SM</div>
+      <div class="sa-brand-text">
+        <span class="name">Supermarket</span>
+        <span class="tagline">Everyday essentials</span>
+      </div>
+    </div>
+
+    <% if (!isSimple) { %>
+      <nav class="sa-nav-links">
+        <a href="/">Home</a>
+        <a href="/shopping">Shop</a>
+        <a href="/cart">Cart</a>
+        <a href="/history">History</a>
+        <% if (user && user.role === 'admin') { %>
+          <a href="/addProduct">Add Product</a>
+          <a href="/admin/analytics">Analytics</a>
+          <a href="/admin/users">Users</a>
+        <% } %>
+      </nav>
+
+      <div class="sa-actions">
+        <% if (user) { %>
+          <span class="chip"><%= user.username %> <% if (user.role === 'admin') { %>· Admin<% } %></span>
+          <a class="btn btn-outline-primary" href="/logout">Logout</a>
+        <% } else { %>
+          <a class="btn btn-outline-primary" href="/login">Log in</a>
+          <a class="btn btn-primary" href="/register">Sign up</a>
+        <% } %>
+      </div>
+    <% } %>
+  </div>
+</header>
