@@ -20,13 +20,14 @@
         <% if (user && user.role === 'admin') { %>
           <a href="/addProduct">Add Product</a>
           <a href="/admin/analytics">Analytics</a>
+          <a href="/admin/orders">Orders</a>
           <a href="/admin/users">Users</a>
         <% } %>
       </nav>
 
       <div class="sa-actions">
         <% if (user) { %>
-          <span class="chip"><%= user.username %> <% if (user.role === 'admin') { %>• Admin<% } %></span>
+          <span class="chip"><%= user.username %> <% if (user.role === 'admin') { %>- Admin<% } %></span>
           <a class="btn btn-outline-primary" href="/profile">Profile</a>
           <a class="btn btn-outline-primary" href="/logout">Logout</a>
         <% } else { %>

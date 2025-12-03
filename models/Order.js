@@ -92,6 +92,19 @@ const Order = {
       ORDER BY o.created_at DESC, oi.id ASC
     `;
     db.query(sql, [userId], cb);
+  },
+
+  // Admin: get every order with user + items for reporting
+  getAllWithUsersAndItems: (cb) => {
+    const sql = `
+      SELECT o.id AS orderId, o.userId, u.username, u.email, o.total, o.created_at,
+             oi.id AS itemId, oi.productId, oi.productName, oi.quantity, oi.base_price, oi.discount_rate, oi.unit_price_after_discount, oi.subtotal
+      FROM orders o
+      LEFT JOIN users u ON u.id = o.userId
+      LEFT JOIN order_items oi ON oi.orderId = o.id
+      ORDER BY o.created_at DESC, oi.id ASC
+    `;
+    db.query(sql, cb);
   }
 };
 

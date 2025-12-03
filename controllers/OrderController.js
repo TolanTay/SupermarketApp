@@ -179,6 +179,95 @@ const OrderController = {
     });
   },
 
+  // Admin: view full order history with items
+  adminOrderHistory: (req, res) => {
+    Order.getAllWithUsersAndItems((err, rows) => {
+      if (err) {
+        console.error('adminOrderHistory DB error', err);
+        req.flash('error', 'Failed to load order history');
+        return res.redirect('/admin/analytics');
+      }
+
+      const map = new Map();
+      (rows || []).forEach(r => {
+        const oid = r.orderId;
+        if (!map.has(oid)) {
+          map.set(oid, {
+            id: oid,
+            userId: r.userId,
+            username: r.username,
+            email: r.email,
+            total: Number(r.total),
+            created_at: r.created_at,
+            items: []
+          });
+        }
+        if (r.itemId) {
+          map.get(oid).items.push({
+            id: r.itemId,
+            productId: r.productId,
+            productName: r.productName,
+            quantity: r.quantity,
+            base_price: Number(r.base_price),
+            discount_rate: Number(r.discount_rate || 0),
+            unit_price_after_discount: Number(r.unit_price_after_discount),
+            subtotal: Number(r.subtotal)
+          });
+        }
+      });
+
+      const orders = Array.from(map.values()).sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
+      res.render('admin/orders', { orders, user: req.session.user, messages: req.flash() });
+    });
+  },
+
+  // Admin: download CSV of full order summary
+  adminDownloadOrders: (req, res) => {
+    Order.getAllWithUsersAndItems((err, rows) => {
+      if (err) {
+        console.error('adminDownloadOrders DB error', err);
+        req.flash('error', 'Failed to export order summary');
+        return res.redirect('/admin/orders');
+      }
+
+      const header = [
+        'Order ID',
+        'User ID',
+        'Username',
+        'Email',
+        'Created At',
+        'Product ID',
+        'Product Name',
+        'Quantity',
+        'Unit Price After Discount',
+        'Subtotal',
+        'Order Total'
+      ];
+
+      const esc = (val) => `"${String(val ?? '').replace(/"/g, '""')}"`;
+      const csvLines = [header.map(esc).join(',')];
+      (rows || []).forEach(r => {
+        csvLines.push([
+          esc(r.orderId),
+          esc(r.userId),
+          esc(r.username || ''),
+          esc(r.email || ''),
+          esc(r.created_at),
+          esc(r.productId || ''),
+          esc(r.productName || ''),
+          esc(r.quantity != null ? r.quantity : ''),
+          esc(r.unit_price_after_discount != null ? Number(r.unit_price_after_discount).toFixed(2) : ''),
+          esc(r.subtotal != null ? Number(r.subtotal).toFixed(2) : ''),
+          esc(r.total != null ? Number(r.total).toFixed(2) : '')
+        ].join(','));
+      });
+
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', 'attachment; filename="order-summary.csv"');
+      res.send(csvLines.join('\n'));
+    });
+  },
+
   // Admin: delete an order and its items
   adminDeleteOrder: (req, res) => {
     const orderId = parseInt(req.params.orderId, 10);

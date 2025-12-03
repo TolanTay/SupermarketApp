@@ -92,6 +92,8 @@ app.post('/admin/users/update/:id', checkAuthenticated, checkAdmin, UserControll
 app.post('/admin/users/delete/:id', checkAuthenticated, checkAdmin, UserController.delete);
 app.get('/admin/users/:id/profile', checkAuthenticated, checkAdmin, UserController.adminProfile);
 app.post('/admin/users/:id/profile', checkAuthenticated, checkAdmin, upload.single('avatar'), UserController.adminUpdateProfile);
+app.get('/admin/orders', checkAuthenticated, checkAdmin, OrderController.adminOrderHistory);
+app.get('/admin/orders/export', checkAuthenticated, checkAdmin, OrderController.adminDownloadOrders);
 // Admin order maintenance
 app.post('/admin/orders/:orderId/delete', checkAuthenticated, checkAdmin, OrderController.adminDeleteOrder);
 app.post('/admin/orders/:orderId/items/:itemId/delete', checkAuthenticated, checkAdmin, OrderController.adminDeleteOrderItem);
