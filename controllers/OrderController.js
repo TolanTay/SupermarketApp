@@ -3,8 +3,69 @@ const Cart = require('../models/Cart');
 const Order = require('../models/Order');
 const InvoiceService = require('../services/InvoiceService');
 const OrderItem = require('../models/OrderItem');
+const NetsQrService = require('../services/NetsQrService');
+const PaypalService = require('../services/PaypalService');
+const PaypalTransaction = require('../models/PaypalTransaction');
+const Wallet = require('../models/Wallet');
+const NetsTransaction = require('../models/NetsTransaction');
 
 const round2 = (v) => Math.round((v + Number.EPSILON) * 100) / 100;
+
+const getOrderItemsFromCart = (uid, cb) => {
+  Cart.getUserCart(uid, (err, rows) => {
+    if (err) return cb(err);
+    if (!rows || rows.length === 0) return cb(null, [], 0);
+
+    const productIds = Array.from(new Set(rows.map(r => r.productId)));
+    const placeholders = productIds.map(() => '?').join(',');
+    const sql = `SELECT id, price, discount_rate FROM products WHERE id IN (${placeholders})`;
+
+    db.query(sql, productIds, (e, prodRows) => {
+      if (e) return cb(e);
+
+      const discMap = {};
+      const priceMap = {};
+      prodRows.forEach(p => {
+        discMap[p.id] = Number(p.discount_rate || 0);
+        priceMap[p.id] = Number(p.price || 0);
+      });
+
+      const grouped = new Map();
+      rows.forEach(r => {
+        const pid = r.productId;
+        if (grouped.has(pid)) {
+          grouped.get(pid).quantity += Number(r.quantity);
+        } else {
+          grouped.set(pid, {
+            productId: pid,
+            productName: r.productName,
+            quantity: Number(r.quantity),
+            price: Number(r.price)
+          });
+        }
+      });
+
+      const items = Array.from(grouped.values()).map(g => {
+        const base_price = round2(priceMap[g.productId] != null ? priceMap[g.productId] : g.price);
+        const discount_rate = discMap[g.productId] != null ? Number(discMap[g.productId]) : 0;
+        const unit_price_after_discount = round2(base_price * (1 - (discount_rate/100)));
+        const subtotal = round2(unit_price_after_discount * g.quantity);
+        return {
+          productId: g.productId,
+          productName: g.productName,
+          quantity: g.quantity,
+          base_price,
+          discount_rate,
+          unit_price_after_discount,
+          subtotal
+        };
+      });
+
+      const total = round2(items.reduce((s,i) => s + i.subtotal, 0));
+      return cb(null, items, total);
+    });
+  });
+};
 
 const OrderController = {
   // render checkout page (reads from cart model)
@@ -38,104 +99,311 @@ const OrderController = {
       });
       const items = Array.from(map.values());
       const total = round2(items.reduce((s,i) => s + i.subtotal, 0));
-      res.render('checkout', { cartItems: items, total, user: req.session.user, messages: req.flash() });
+      Wallet.getBalance(uid, (bErr, balance) => {
+        if (bErr) console.error('checkoutView wallet error', bErr);
+        res.render('checkout', { cartItems: items, total, walletBalance: balance || 0, user: req.session.user, messages: req.flash() });
+      });
     });
   },
 
-  // Confirm purchase: create order + order_items (transactional), then clear cart
-  confirmPurchase: (req, res) => {
+  // Start NETS QR flow: request QR, store pending order, render QR page
+  startNetsQr: (req, res) => {
     const uid = req.session.user && req.session.user.id; if (!uid) return res.redirect('/login');
 
-    Cart.getUserCart(uid, (err, rows) => {
+    getOrderItemsFromCart(uid, async (err, items, total) => {
       if (err) {
-        console.error('confirmPurchase - getUserCart error', err);
+        console.error('startNetsQr - cart error', err);
         req.flash('error', 'Database error while reading cart');
         return res.redirect('/checkout');
       }
-      if (!rows || rows.length === 0) {
+      if (!items.length) {
         req.flash('error', 'Your cart is empty.');
         return res.redirect('/checkout');
       }
 
-      // Fetch product discount rates for all cart items
-      const productIds = Array.from(new Set(rows.map(r => r.productId)));
-      const placeholders = productIds.map(() => '?').join(',');
-      const sql = `SELECT id, price, discount_rate FROM products WHERE id IN (${placeholders})`;
-
-      db.query(sql, productIds, (e, prodRows) => {
-        if (e) {
-          console.error('confirmPurchase - fetching product discounts error', e);
-          req.flash('error', 'Database error');
+      try {
+        const txn_id = process.env.NETS_TXN_ID || 'sandbox_nets|m|8ff8e5b6-d43e-4786-8ac5-7accf8c5bd9b';
+        const response = await NetsQrService.requestQr({
+          txn_id,
+          amt_in_dollars: Number(total.toFixed(2)),
+          notify_mobile: 0
+        });
+        const data = response && response.result && response.result.data;
+        if (!data || !data.qr_code || !data.txn_retrieval_ref) {
+          req.flash('error', 'Failed to generate NETS QR.');
           return res.redirect('/checkout');
         }
 
-        const discMap = {};
-        const priceMap = {};
-        prodRows.forEach(p => {
-          discMap[p.id] = Number(p.discount_rate || 0);
-          priceMap[p.id] = Number(p.price || 0);
-        });
+        req.session.netsPending = {
+          type: 'order',
+          items,
+          total,
+          txn_id,
+          txn_retrieval_ref: data.txn_retrieval_ref,
+          txn_nets_qr_id: data.txn_nets_qr_id
+        };
 
-        // Group cart rows by productId and sum quantities
-        const grouped = new Map();
-        rows.forEach(r => {
-          const pid = r.productId;
-          if (grouped.has(pid)) {
-            grouped.get(pid).quantity += Number(r.quantity);
-          } else {
-            grouped.set(pid, {
-              productId: pid,
-              productName: r.productName,
-              quantity: Number(r.quantity),
-              price: Number(r.price)
-            });
+        NetsTransaction.createPending({
+          userId: uid,
+          txn_id,
+          txn_retrieval_ref: data.txn_retrieval_ref,
+          txn_nets_qr_id: data.txn_nets_qr_id,
+          amount: total,
+          status: 'pending',
+          response_code: data.response_code,
+          network_status: data.network_status,
+          txn_status: data.txn_status,
+          raw_response: JSON.stringify(response)
+        }, (logErr, netsTxnId) => {
+          if (logErr) console.error('startNetsQr - log transaction error', logErr);
+          if (req.session && req.session.netsPending) {
+            req.session.netsPending.netsTxnId = netsTxnId;
           }
         });
 
-        // Build order_items array with grouped quantities
-        const items = Array.from(grouped.values()).map(g => {
-          const base_price = round2(priceMap[g.productId] != null ? priceMap[g.productId] : g.price);
-          const discount_rate = discMap[g.productId] != null ? Number(discMap[g.productId]) : 0;
-          const unit_price_after_discount = round2(base_price * (1 - (discount_rate/100)));
-          const subtotal = round2(unit_price_after_discount * g.quantity);
-          return {
-            productId: g.productId,
-            productName: g.productName,
-            quantity: g.quantity,
-            base_price,
-            discount_rate,
-            unit_price_after_discount,
-            subtotal
-          };
+        return res.render('nets-qr', {
+          qrCodeBase64: data.qr_code,
+          txnRetrievalRef: data.txn_retrieval_ref,
+          total,
+          user: req.session.user
         });
+      } catch (apiErr) {
+        console.error('startNetsQr - NETS request error', apiErr);
+        req.flash('error', 'Failed to connect to NETS QR service.');
+        return res.redirect('/checkout');
+      }
+    });
+  },
 
-        const total = round2(items.reduce((s,i) => s + i.subtotal, 0));
+  // Finalize NETS QR: create order + order_items or wallet top-up, then clear cart
+  finalizeNetsQr: (req, res) => {
+    const uid = req.session.user && req.session.user.id; if (!uid) return res.redirect('/login');
+    const pending = req.session.netsPending;
+    if (!pending || !pending.items || !pending.items.length) {
+      if (pending && pending.type === 'wallet_topup') {
+        const amount = Number(pending.amount || 0);
+        return Wallet.credit(uid, amount, {
+          type: 'topup',
+          method: 'nets',
+          status: 'completed',
+          note: 'NETS QR top-up'
+        }, (wErr) => {
+          if (wErr) console.error('wallet topup finalize error', wErr);
+          if (pending.txn_retrieval_ref) {
+            NetsTransaction.updateByTxnRef(pending.txn_retrieval_ref, { status: 'success' }, () => {});
+          }
+          Wallet.getBalance(uid, (bErr, balance) => {
+            if (!bErr && req.session && req.session.user) {
+              req.session.user.wallet_balance = Number(balance || 0);
+            }
+          });
+          req.session.netsPending = null;
+          return res.render('netsTxnSuccessStatus', { message: 'Wallet top-up completed.', user: req.session.user });
+        });
+      }
+      req.flash('error', 'No pending NETS payment found.');
+      return res.redirect('/checkout');
+    }
+
+    Order.createOrderWithItems(uid, pending.items, pending.total, (orderErr, orderId) => {
+      if (orderErr) {
+        console.error('finalizeNetsQr - createOrderWithItems error', orderErr);
+        req.flash('error', 'Failed to create order');
+        return res.redirect('/checkout');
+      }
+
+      Cart.clearCart(uid, (clearErr) => {
+        if (clearErr) {
+          console.error('finalizeNetsQr - clearCart error', clearErr);
+          req.flash('error', 'Order created but failed to clear cart. Please contact support.');
+          return res.redirect('/checkout');
+        }
+
+        if (pending.netsTxnId) {
+          NetsTransaction.attachOrder(pending.netsTxnId, orderId, (linkErr) => {
+            if (linkErr) console.error('finalizeNetsQr - attachOrder error', linkErr);
+          });
+        }
+        if (pending.txn_retrieval_ref) {
+          NetsTransaction.updateByTxnRef(pending.txn_retrieval_ref, {
+            status: 'success'
+          }, (updErr) => {
+            if (updErr) console.error('finalizeNetsQr - update status error', updErr);
+          });
+        }
+        const orderObj = { id: orderId, total: pending.total };
+        const html = InvoiceService.formatHtml(orderObj, pending.items);
+        InvoiceService.save(uid, html, (invErr) => {
+          if (invErr) console.error('Failed to save invoice:', invErr);
+          req.session.netsPending = null;
+          return res.render('netsTxnSuccessStatus', { message: 'Transaction Successful!', orderId, user: req.session.user });
+        });
+      });
+    });
+  },
+
+  payWithWallet: (req, res) => {
+    const uid = req.session.user && req.session.user.id; if (!uid) return res.redirect('/login');
+    getOrderItemsFromCart(uid, (err, items, total) => {
+      if (err) {
+        console.error('payWithWallet - cart error', err);
+        req.flash('error', 'Database error while reading cart');
+        return res.redirect('/checkout');
+      }
+      if (!items.length) {
+        req.flash('error', 'Your cart is empty.');
+        return res.redirect('/checkout');
+      }
+
+      Wallet.debit(uid, total, { type: 'payment', method: 'wallet', status: 'completed', note: 'Wallet payment' }, (wErr) => {
+        if (wErr) {
+          if (wErr.message === 'INSUFFICIENT_FUNDS') {
+            Wallet.logFailure(uid, total, {
+              type: 'payment',
+              method: 'wallet',
+              status: 'failed',
+              note: 'Insufficient wallet balance'
+            }, (logErr) => {
+              if (logErr) console.error('wallet failure log error', logErr);
+            });
+            req.flash('error', 'Insufficient wallet balance.');
+          } else {
+            Wallet.logFailure(uid, total, {
+              type: 'payment',
+              method: 'wallet',
+              status: 'failed',
+              note: 'Wallet payment failed'
+            }, (logErr) => {
+              if (logErr) console.error('wallet failure log error', logErr);
+            });
+            console.error('payWithWallet wallet error', wErr);
+            req.flash('error', 'Failed to charge wallet.');
+          }
+          return res.redirect('/checkout');
+        }
+        Wallet.getBalance(uid, (bErr, balance) => {
+          if (!bErr && req.session && req.session.user) {
+            req.session.user.wallet_balance = Number(balance || 0);
+          }
+        });
 
         Order.createOrderWithItems(uid, items, total, (orderErr, orderId) => {
           if (orderErr) {
-            console.error('confirmPurchase - createOrderWithItems error', orderErr);
+            console.error('payWithWallet - createOrderWithItems error', orderErr);
+            Wallet.credit(uid, total, {
+              type: 'refund',
+              method: 'wallet',
+              status: 'completed',
+              note: 'Auto-refund after order failure'
+            }, (rErr) => {
+              if (rErr) console.error('payWithWallet refund error', rErr);
+            });
             req.flash('error', 'Failed to create order');
             return res.redirect('/checkout');
           }
 
+          Wallet.attachOrderToLatestPayment(uid, total, orderId, (aErr) => {
+            if (aErr) console.error('payWithWallet - attach wallet order error', aErr);
+          });
+
           Cart.clearCart(uid, (clearErr) => {
             if (clearErr) {
-              console.error('confirmPurchase - clearCart error', clearErr);
+              console.error('payWithWallet - clearCart error', clearErr);
               req.flash('error', 'Order created but failed to clear cart. Please contact support.');
               return res.redirect('/checkout');
             }
 
             const orderObj = { id: orderId, total };
             const html = InvoiceService.formatHtml(orderObj, items);
-            InvoiceService.save(uid, html, (invErr, filepath) => {
+            InvoiceService.save(uid, html, (invErr) => {
               if (invErr) console.error('Failed to save invoice:', invErr);
-              else console.log('Invoice saved to', filepath);
-              req.flash('success', 'Purchase confirmed. Order #' + orderId);
+              req.flash('success', 'Wallet payment completed. Order #' + orderId);
               return res.redirect('/history');
             });
           });
         });
       });
+    });
+  },
+
+  createPaypalOrder: (req, res) => {
+    const uid = req.session.user && req.session.user.id; if (!uid) return res.status(401).json({ error: 'Unauthorized' });
+    getOrderItemsFromCart(uid, async (err, items, total) => {
+      if (err) {
+        console.error('createPaypalOrder - cart error', err);
+        return res.status(500).json({ error: 'Failed to read cart' });
+      }
+      if (!items.length) return res.status(400).json({ error: 'Cart is empty' });
+
+      try {
+        const order = await PaypalService.createOrder(total);
+        if (!order || !order.id) {
+          return res.status(500).json({ error: 'Failed to create PayPal order' });
+        }
+        req.session.paypalPending = { items, total };
+        return res.json({ id: order.id });
+      } catch (e) {
+        console.error('createPaypalOrder error', e);
+        return res.status(500).json({ error: 'PayPal create order failed' });
+      }
+    });
+  },
+
+  capturePaypalOrder: (req, res) => {
+    const uid = req.session.user && req.session.user.id; if (!uid) return res.status(401).json({ error: 'Unauthorized' });
+    const { orderID } = req.body;
+    if (!orderID) return res.status(400).json({ error: 'Missing orderID' });
+
+    const pending = req.session.paypalPending;
+    if (!pending || !pending.items || !pending.items.length) {
+      return res.status(400).json({ error: 'No pending PayPal checkout' });
+    }
+
+    PaypalService.captureOrder(orderID).then((capture) => {
+      if (!capture || capture.status !== 'COMPLETED') {
+        req.session.paypalPending = null;
+        return res.status(400).json({ error: 'Payment not completed', details: capture });
+      }
+
+      Order.createOrderWithItems(uid, pending.items, pending.total, (orderErr, orderId) => {
+        if (orderErr) {
+          console.error('capturePaypalOrder - createOrderWithItems error', orderErr);
+          return res.status(500).json({ error: 'Failed to create order' });
+        }
+
+        Cart.clearCart(uid, (clearErr) => {
+          if (clearErr) {
+            console.error('capturePaypalOrder - clearCart error', clearErr);
+            return res.status(500).json({ error: 'Order created but failed to clear cart' });
+          }
+
+          const purchaseUnit = capture.purchase_units && capture.purchase_units[0];
+          const captureInfo = purchaseUnit && purchaseUnit.payments && purchaseUnit.payments.captures && purchaseUnit.payments.captures[0];
+          const amountInfo = captureInfo && captureInfo.amount ? captureInfo.amount : { value: pending.total, currency_code: 'SGD' };
+
+          PaypalTransaction.create({
+            userId: uid,
+            orderId,
+            paypal_order_id: capture.id,
+            capture_id: captureInfo && captureInfo.id,
+            payer_id: capture.payer && capture.payer.payer_id,
+            payer_email: capture.payer && capture.payer.email_address,
+            amount: Number(amountInfo.value),
+            currency: amountInfo.currency_code || 'SGD',
+            status: capture.status,
+            refund_status: 'none',
+            raw_response: JSON.stringify(capture)
+          }, (logErr) => {
+            if (logErr) console.error('capturePaypalOrder - log transaction error', logErr);
+            req.session.paypalPending = null;
+            return res.json({ success: true, orderId });
+          });
+        });
+      });
+    }).catch((err) => {
+      console.error('capturePaypalOrder error', err);
+      req.session.paypalPending = null;
+      return res.status(500).json({ error: 'PayPal capture failed' });
     });
   },
 
@@ -175,7 +443,23 @@ const OrderController = {
       });
 
       const orders = Array.from(ordersMap.values()).sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
-      res.render('purchaseHistory', { orders, user: req.session.user, messages: req.flash() });
+      const orderIds = orders.map(o => o.id);
+      PaypalTransaction.getByOrderIds(orderIds, (pErr, pRows) => {
+        if (pErr) console.error('purchaseHistory paypal lookup error', pErr);
+        const paypalMap = new Map();
+        (pRows || []).forEach(r => paypalMap.set(String(r.orderId), r));
+        NetsTransaction.getByOrderIds(orderIds, (nErr, nRows) => {
+          if (nErr) console.error('purchaseHistory nets lookup error', nErr);
+          const netsMap = new Map();
+          (nRows || []).forEach(r => netsMap.set(String(r.orderId), r));
+          Wallet.getPaymentByOrderIds(orderIds, (wErr, wRows) => {
+            if (wErr) console.error('purchaseHistory wallet lookup error', wErr);
+            const walletMap = new Map();
+            (wRows || []).forEach(r => walletMap.set(String(r.orderId), r));
+            res.render('purchaseHistory', { orders, paypalMap, netsMap, walletMap, user: req.session.user, messages: req.flash() });
+          });
+        });
+      });
     });
   },
 
@@ -217,7 +501,18 @@ const OrderController = {
       });
 
       const orders = Array.from(map.values()).sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
-      res.render('admin/orders', { orders, user: req.session.user, messages: req.flash() });
+      const orderIds = orders.map(o => o.id);
+      PaypalTransaction.getByOrderIds(orderIds, (pErr, pRows) => {
+        if (pErr) console.error('adminOrderHistory paypal lookup error', pErr);
+        const paypalMap = new Map();
+        (pRows || []).forEach(r => paypalMap.set(String(r.orderId), r));
+        NetsTransaction.getByOrderIds(orderIds, (nErr, nRows) => {
+          if (nErr) console.error('adminOrderHistory nets lookup error', nErr);
+          const netsMap = new Map();
+          (nRows || []).forEach(r => netsMap.set(String(r.orderId), r));
+          res.render('admin/orders', { orders, paypalMap, netsMap, user: req.session.user, messages: req.flash() });
+        });
+      });
     });
   },
 
@@ -405,6 +700,103 @@ const OrderController = {
     };
 
     doNext(0);
+  }
+  ,
+
+  adminRefundPaypal: (req, res) => {
+    const orderId = parseInt(req.params.orderId, 10);
+      if (!orderId) {
+        req.flash('error', 'Invalid order id');
+        return res.redirect(req.get('Referer') || '/admin/orders');
+      }
+    PaypalTransaction.getByOrderId(orderId, (err, txn) => {
+      if (err) {
+        console.error('adminRefundPaypal lookup error', err);
+        req.flash('error', 'Failed to load PayPal transaction');
+        return res.redirect(req.get('Referer') || '/admin/orders');
+      }
+      if (!txn || !txn.capture_id) {
+        req.flash('error', 'No PayPal capture found for this order');
+        return res.redirect(req.get('Referer') || '/admin/orders');
+      }
+      if (txn.refund_status === 'refunded') {
+        req.flash('success', 'Order already refunded');
+        return res.redirect(req.get('Referer') || '/admin/orders');
+      }
+
+      PaypalService.refundCapture(txn.capture_id, txn.amount).then((refund) => {
+        const refundStatus = refund && refund.status ? refund.status.toLowerCase() : 'refunded';
+        PaypalTransaction.updateRefund(txn.id, {
+          refund_status: refundStatus,
+          refund_id: refund.id,
+          refund_response: JSON.stringify(refund)
+        }, (uErr) => {
+          if (uErr) console.error('adminRefundPaypal update error', uErr);
+          req.flash('success', `Refund ${refundStatus}`);
+          return res.redirect(req.get('Referer') || '/admin/orders');
+        });
+      }).catch((rErr) => {
+        console.error('adminRefundPaypal refund error', rErr);
+        PaypalTransaction.updateRefund(txn.id, {
+          refund_status: 'failed',
+          refund_response: JSON.stringify(rErr.response || { error: rErr.message })
+        }, () => {
+          req.flash('error', 'Refund failed');
+          return res.redirect(req.get('Referer') || '/admin/orders');
+        });
+      });
+    });
+  }
+  ,
+
+  adminRefundWalletForNets: (req, res) => {
+    const orderId = parseInt(req.params.orderId, 10);
+    if (!orderId) {
+      req.flash('error', 'Invalid order id');
+      return res.redirect(req.get('Referer') || '/admin/orders');
+    }
+    Order.getWithItems(orderId, (oErr, rows) => {
+      if (oErr || !rows || !rows.length) {
+        req.flash('error', 'Order not found');
+        return res.redirect(req.get('Referer') || '/admin/orders');
+      }
+      const order = {
+        id: rows[0].orderId,
+        userId: rows[0].userId,
+        total: Number(rows[0].total)
+      };
+      NetsTransaction.getByOrderId(orderId, (nErr, txn) => {
+        if (nErr) {
+          console.error('adminRefundWalletForNets lookup error', nErr);
+          req.flash('error', 'Failed to load NETS transaction');
+          return res.redirect(req.get('Referer') || '/admin/orders');
+        }
+        if (!txn) {
+          req.flash('error', 'No NETS transaction found for this order');
+          return res.redirect(req.get('Referer') || '/admin/orders');
+        }
+        if (txn.status === 'refunded_wallet') {
+          req.flash('success', 'Order already refunded to wallet');
+          return res.redirect(req.get('Referer') || '/admin/orders');
+        }
+
+        Wallet.credit(order.userId, order.total, {
+          type: 'refund',
+          method: 'nets',
+          status: 'completed',
+          note: `NETS refund for order #${orderId}`
+        }, (wErr) => {
+          if (wErr) {
+            console.error('adminRefundWalletForNets wallet error', wErr);
+            req.flash('error', 'Failed to refund to wallet');
+            return res.redirect(req.get('Referer') || '/admin/orders');
+          }
+          NetsTransaction.updateByTxnRef(txn.txn_retrieval_ref, { status: 'refunded_wallet' }, () => {});
+          req.flash('success', 'Refunded to wallet');
+          return res.redirect(req.get('Referer') || '/admin/orders');
+        });
+      });
+    });
   }
 };
 

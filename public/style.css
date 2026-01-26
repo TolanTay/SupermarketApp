@@ -448,6 +448,44 @@ a:hover {
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
+.checkout-payments {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.payment-card {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  box-shadow: var(--shadow-soft);
+}
+
+.payment-label {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  font-size: 0.85rem;
+  color: #dbe6ff;
+  margin-bottom: 6px;
+}
+
+.payment-muted {
+  color: var(--mist);
+  font-size: 0.95rem;
+}
+
+.payment-note {
+  font-size: 0.9rem;
+  color: #e9f2ff;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+
 .page-subnav {
   display: flex;
   gap: 12px;

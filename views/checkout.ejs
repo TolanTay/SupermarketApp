@@ -16,6 +16,7 @@
       <p>Secure your selections with one smooth step. Prices and quantities reflect your latest cart.</p>
       <div class="hero-actions">
         <a class="btn btn-outline-primary" href="/shopping">Keep shopping</a>
+        <a class="btn btn-outline-primary" href="/cart">Back to cart</a>
       </div>
     </div>
   </section>
@@ -58,11 +59,90 @@
         </table>
       </div>
 
-      <form id="confirm-form" action="/checkout/confirm" method="POST" class="d-flex gap-2">
-        <button id="confirm-btn" class="btn btn-primary">Confirm Purchase</button>
-        <a href="/cart" class="btn btn-outline-primary">Back to cart</a>
-      </form>
+      <div class="checkout-payments">
+        <div class="payment-card">
+          <div class="payment-label">NETS QR</div>
+          <p class="payment-muted mb-2">Scan with your banking app after confirming.</p>
+          <div class="payment-note mb-3">Refunds for NETS purchases will be credited to your wallet.</div>
+          <form id="confirm-form" action="/checkout/confirm" method="POST" class="d-flex gap-2">
+            <button id="confirm-btn" class="btn btn-primary">Pay with NETS QR</button>
+          </form>
+        </div>
+        <div class="payment-card">
+          <div class="payment-label">PayPal</div>
+          <p class="payment-muted mb-3">Sign in to approve the payment instantly.</p>
+          <div id="paypal-status" class="payment-note mb-3" style="display:none;"></div>
+          <div id="paypal-button-container"></div>
+        </div>
+        <div class="payment-card">
+          <div class="payment-label">Wallet</div>
+          <p class="payment-muted mb-2">Use your balance for a fast checkout.</p>
+          <div class="payment-note mb-3">Balance: $<%= Number(walletBalance || 0).toFixed(2) %></div>
+          <form action="/checkout/wallet" method="POST" class="d-flex gap-2">
+            <button type="submit" class="btn btn-outline-secondary">Pay with Wallet</button>
+            <a href="/wallet" class="btn btn-link">Top up</a>
+          </form>
+        </div>
+      </div>
     <% } %>
   </main>
+
+  <% if (cartItems && cartItems.length) { %>
+    <% if (process.env.PAYPAL_CLIENT_ID) { %>
+      <script src="https://www.paypal.com/sdk/js?client-id=<%= process.env.PAYPAL_CLIENT_ID %>&currency=SGD&intent=capture&commit=true&disable-funding=card"></script>
+      <script>
+        (function () {
+          const paypalContainer = document.getElementById('paypal-button-container');
+          if (!paypalContainer || typeof paypal === 'undefined') return;
+          const statusEl = document.getElementById('paypal-status');
+          const showStatus = (msg) => {
+            if (!statusEl) return;
+            statusEl.style.display = 'block';
+            statusEl.textContent = msg;
+          };
+
+          paypal.Buttons({
+            createOrder: function () {
+              return fetch('/api/paypal/create-order', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({})
+            }).then((res) => res.json()).then((data) => data.id);
+          },
+          onApprove: function (data) {
+            return fetch('/api/paypal/capture-order', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ orderID: data.orderID })
+            }).then((res) => res.json()).then((details) => {
+                if (details && details.success) {
+                  window.location.href = '/history';
+                } else {
+                  showStatus('Payment not completed. Please try again.');
+                }
+              });
+          },
+          onCancel: function () {
+            showStatus('Payment canceled. Please try again.');
+          },
+          onError: function () {
+            showStatus('Payment failed. Please try again.');
+          },
+          onClick: function (data, actions) {
+            if (!<%= cartItems && cartItems.length ? 'true' : 'false' %>) {
+              alert('Your cart is empty.');
+              return actions.reject();
+            }
+            return actions.resolve();
+          }
+          }).render('#paypal-button-container');
+        })();
+      </script>
+    <% } else { %>
+      <script>
+        document.getElementById('paypal-button-container').innerText = 'PayPal not configured.';
+      </script>
+    <% } %>
+  <% } %>
 </body>
 </html>

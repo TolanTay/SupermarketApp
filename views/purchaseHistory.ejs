@@ -33,10 +33,30 @@
     <% } else { %>
       <% orders.forEach(order => { %>
         <div class="card mb-3">
-          <div class="card-header d-flex justify-content-between align-items-center">
+          <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
             <div>Order #<%= order.id %></div>
             <div><small class="text-muted"><%= new Date(order.created_at).toLocaleString() %></small></div>
             <div class="fw-bold">Total: $<%= Number(order.total).toFixed(2) %></div>
+          </div>
+          <% const paypalTxn = (typeof paypalMap !== 'undefined' && paypalMap && paypalMap.get) ? paypalMap.get(String(order.id)) : null; %>
+          <% const netsTxn = (typeof netsMap !== 'undefined' && netsMap && netsMap.get) ? netsMap.get(String(order.id)) : null; %>
+          <% const walletTxn = (typeof walletMap !== 'undefined' && walletMap && walletMap.get) ? walletMap.get(String(order.id)) : null; %>
+          <div class="card-body border-top py-2">
+            <% if (paypalTxn) { %>
+              <span class="badge bg-info text-dark me-2">PayPal</span>
+              <span class="small text-muted">Payment: <%= paypalTxn.status %></span>
+              <span class="small text-muted ms-2">Refund: <%= (paypalTxn.refund_status === 'refunded' || paypalTxn.refund_status === 'completed') ? 'Refunded' : (paypalTxn.refund_status === 'failed' ? 'Refund failed' : 'Not refunded') %></span>
+            <% } else if (netsTxn) { %>
+              <span class="badge bg-warning text-dark me-2">NETS QR</span>
+              <span class="small text-muted">Payment: Success</span>
+              <span class="small text-muted ms-2">Refund: <%= netsTxn.status === 'refunded_wallet' ? 'Wallet credited' : 'Not refunded' %></span>
+            <% } else if (walletTxn) { %>
+              <span class="badge bg-success me-2">Wallet</span>
+              <span class="small text-muted">Payment: Completed</span>
+              <span class="small text-muted ms-2">Refund: Not refunded</span>
+            <% } else { %>
+              <span class="small text-muted">Payment: Unknown</span>
+            <% } %>
           </div>
           <div class="card-body p-0">
             <table class="table mb-0">

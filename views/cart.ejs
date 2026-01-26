@@ -57,7 +57,7 @@
                   <img src="<%= item.image ? ('/images/' + item.image) : '/images/default.png' %>" style="max-width:80px" alt="<%= item.name %>">
                 </td>
                 <td>
-                  <form action="/cart/update/<%= item.id %>" method="POST" class="d-flex">
+                  <form action="/cart/update/<%= item.productId %>" method="POST" class="d-flex">
                     <input type="number" name="quantity" value="<%= item.quantity %>" min="1" class="form-control form-control-sm me-2" style="width:80px">
                     <button type="submit" class="btn btn-sm btn-outline-primary">Update</button>
                   </form>
@@ -65,7 +65,7 @@
                 <td>$<%= Number(item.price).toFixed(2) %></td>
                 <td>$<%= Number(item.subtotal).toFixed(2) %></td>
                 <td>
-                  <form action="/cart/delete/<%= item.id %>" method="POST" onsubmit="return confirm('Remove this item from cart?')">
+                  <form action="/cart/delete/<%= item.productId %>" method="POST" onsubmit="return confirm('Remove this item from cart?')">
                     <button type="submit" class="btn btn-sm btn-outline-danger">Remove</button>
                   </form>
                 </td>

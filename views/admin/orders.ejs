@@ -50,6 +50,36 @@
             </div>
             <div class="fw-bold text-primary">Total: $<%= Number(order.total).toFixed(2) %></div>
           </div>
+          <% const paypalTxn = (typeof paypalMap !== 'undefined' && paypalMap && paypalMap.get) ? paypalMap.get(String(order.id)) : null; %>
+          <% const netsTxn = (typeof netsMap !== 'undefined' && netsMap && netsMap.get) ? netsMap.get(String(order.id)) : null; %>
+          <% if (paypalTxn) { %>
+            <div class="card-body border-top d-flex flex-wrap justify-content-between align-items-center gap-2">
+              <div>
+                <span class="badge bg-info text-dark me-2">PayPal</span>
+                <span class="small text-muted">Status: <%= paypalTxn.status %></span>
+                <% if (paypalTxn.refund_status && paypalTxn.refund_status !== 'none') { %>
+                  <span class="small text-muted ms-2">Refund: <%= paypalTxn.refund_status %></span>
+                <% } %>
+              </div>
+              <% if (paypalTxn.refund_status === 'none' || !paypalTxn.refund_status) { %>
+                <form action="/admin/orders/<%= order.id %>/refund/paypal" method="POST" class="m-0">
+                  <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Refund this PayPal payment?');">Refund PayPal</button>
+                </form>
+              <% } %>
+            </div>
+          <% } else if (netsTxn) { %>
+            <div class="card-body border-top d-flex flex-wrap justify-content-between align-items-center gap-2">
+              <div>
+                <span class="badge bg-warning text-dark me-2">NETS QR</span>
+                <span class="small text-muted">Status: <%= netsTxn.status %></span>
+              </div>
+              <% if (netsTxn.status !== 'refunded_wallet') { %>
+                <form action="/admin/orders/<%= order.id %>/refund/wallet" method="POST" class="m-0">
+                  <button type="submit" class="btn btn-sm btn-outline-warning" onclick="return confirm('Refund to wallet?');">Refund to Wallet</button>
+                </form>
+              <% } %>
+            </div>
+          <% } %>
           <div class="card-body p-0">
             <table class="table mb-0">
               <thead>

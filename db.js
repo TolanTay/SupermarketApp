@@ -27,6 +27,98 @@ connection.connect(err => {
     if (err2) console.error('Failed to create cart table:', err2);
   });
 
+  const createNetsTransactions = `
+    CREATE TABLE IF NOT EXISTS nets_transactions (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      userId INT NOT NULL,
+      orderId INT NULL,
+      txn_id VARCHAR(120) NOT NULL,
+      txn_retrieval_ref VARCHAR(64),
+      txn_nets_qr_id INT,
+      amount DECIMAL(10,2) NOT NULL,
+      status VARCHAR(20) NOT NULL,
+      response_code VARCHAR(10),
+      network_status INT,
+      txn_status INT,
+      error_message VARCHAR(255),
+      raw_response TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_user (userId),
+      INDEX idx_order (orderId),
+      INDEX idx_txn_ref (txn_retrieval_ref),
+      INDEX idx_txn_id (txn_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `;
+  connection.query(createNetsTransactions, (errNets) => {
+    if (errNets) console.error('Failed to create nets_transactions table:', errNets);
+  });
+
+  const createPaypalTransactions = `
+    CREATE TABLE IF NOT EXISTS paypal_transactions (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      userId INT NOT NULL,
+      orderId INT NULL,
+      paypal_order_id VARCHAR(64) NOT NULL,
+      capture_id VARCHAR(64),
+      payer_id VARCHAR(64),
+      payer_email VARCHAR(255),
+      amount DECIMAL(10,2) NOT NULL,
+      currency VARCHAR(10) NOT NULL,
+      status VARCHAR(30) NOT NULL,
+      refund_status VARCHAR(20) NOT NULL DEFAULT 'none',
+      refund_id VARCHAR(64),
+      refund_response TEXT,
+      raw_response TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_user (userId),
+      INDEX idx_order (orderId),
+      INDEX idx_paypal_order (paypal_order_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `;
+  connection.query(createPaypalTransactions, (errPaypal) => {
+    if (errPaypal) console.error('Failed to create paypal_transactions table:', errPaypal);
+  });
+
+  const ensureColumn = (table, column, definition) => {
+    const sql = `SHOW COLUMNS FROM ${table} LIKE ?`;
+    connection.query(sql, [column], (err, cols) => {
+      if (err) return console.error(`Failed to verify ${table}.${column}:`, err);
+      if (!cols || !cols.length) {
+        connection.query(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`, (alterErr) => {
+          if (alterErr) console.error(`Failed to add ${table}.${column}:`, alterErr);
+        });
+      }
+    });
+  };
+
+  ensureColumn('paypal_transactions', 'capture_id', 'VARCHAR(64)');
+  ensureColumn('paypal_transactions', 'refund_status', "VARCHAR(20) NOT NULL DEFAULT 'none'");
+  ensureColumn('paypal_transactions', 'refund_id', 'VARCHAR(64)');
+  ensureColumn('paypal_transactions', 'refund_response', 'TEXT');
+
+  const createWalletTransactions = `
+    CREATE TABLE IF NOT EXISTS wallet_transactions (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      userId INT NOT NULL,
+      orderId INT NULL,
+      type VARCHAR(20) NOT NULL,
+      method VARCHAR(20) NOT NULL,
+      amount DECIMAL(10,2) NOT NULL,
+      status VARCHAR(20) NOT NULL,
+      note VARCHAR(255),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_user (userId),
+      INDEX idx_order (orderId)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `;
+  connection.query(createWalletTransactions, (errWallet) => {
+    if (errWallet) console.error('Failed to create wallet_transactions table:', errWallet);
+  });
+
+  ensureColumn('users', 'wallet_balance', 'DECIMAL(10,2) NOT NULL DEFAULT 0');
+
   // --- NEW: capture initial product stock snapshot on startup (prefer persistent initialQuantity) ---
   connection.query('SELECT id, quantity, initialQuantity FROM products', (err3, rows) => {
     if (err3) {

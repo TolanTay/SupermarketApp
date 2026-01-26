@@ -16,7 +16,7 @@ const User = {
 
   // Find by username/email and password (used for login)
   findByCredentials: (identifier, password, cb) => {
-    const sql = `SELECT id, username, email, role, address, contact, avatar FROM users
+    const sql = `SELECT id, username, email, role, address, contact, avatar, wallet_balance FROM users
                  WHERE (username = ? OR email = ?) AND password = SHA1(?) LIMIT 1`;
     db.query(sql, [identifier, identifier, password], (err, rows) => {
       if (err) return cb(err);
@@ -26,7 +26,7 @@ const User = {
 
   // Find by id
   findById: (id, cb) => {
-    db.query('SELECT id, username, email, role, address, contact, avatar FROM users WHERE id = ? LIMIT 1', [id], (err, rows) => {
+    db.query('SELECT id, username, email, role, address, contact, avatar, wallet_balance FROM users WHERE id = ? LIMIT 1', [id], (err, rows) => {
       if (err) return cb(err);
       return cb(null, rows && rows[0] ? rows[0] : null);
     });
