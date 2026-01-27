@@ -14,7 +14,25 @@ const CartModel = {
     });
   },
 
-  addToCart: (userId, productId, qty, cb) => {
+  addToCart: (userId, productId, qty, cb, options = {}) => {
+    if (options.skipStock) {
+      return connection.query('SELECT price, discount_rate FROM products WHERE id = ?', [productId], (err1, prodRows) => {
+        if (err1) return cb(err1);
+        if (!prodRows || prodRows.length === 0) return cb(new Error('Product not found'));
+        const basePrice = parseFloat(prodRows[0].price) || 0;
+        const discountRate = parseFloat(prodRows[0].discount_rate) || 0;
+        const finalPrice = +((basePrice * (1 - (discountRate / 100))) || 0).toFixed(2);
+        const insertSql = `
+          INSERT INTO cart (userId, productId, quantity, price)
+          VALUES (?, ?, ?, ?)
+          ON DUPLICATE KEY UPDATE quantity = quantity + VALUES(quantity), price = VALUES(price)
+        `;
+        return connection.query(insertSql, [userId, productId, qty, finalPrice], (err2) => {
+          if (err2) return cb(err2);
+          return cb(null, { productId, qty, remaining: null, price: finalPrice });
+        });
+      });
+    }
     connection.beginTransaction(err => {
       if (err) return cb(err);
 
@@ -53,7 +71,13 @@ const CartModel = {
     });
   },
 
-  updateCartQuantity: (userId, productId, newQty, cb) => {
+  updateCartQuantity: (userId, productId, newQty, cb, options = {}) => {
+    if (options.skipStock) {
+      return connection.query('UPDATE cart SET quantity = ? WHERE userId = ? AND productId = ?', [newQty, userId, productId], (err) => {
+        if (err) return cb(err);
+        return cb(null, { changed: true });
+      });
+    }
     connection.beginTransaction(err => {
       if (err) return cb(err);
 
@@ -90,7 +114,13 @@ const CartModel = {
     });
   },
 
-  removeFromCart: (userId, productId, cb) => {
+  removeFromCart: (userId, productId, cb, options = {}) => {
+    if (options.skipStock) {
+      return connection.query('DELETE FROM cart WHERE userId = ? AND productId = ?', [userId, productId], (err) => {
+        if (err) return cb(err);
+        return cb(null, { removed: true });
+      });
+    }
     connection.beginTransaction(err => {
       if (err) return cb(err);
       connection.query('SELECT quantity FROM cart WHERE userId = ? AND productId = ? FOR UPDATE', [userId, productId], (err1, cartRows) => {

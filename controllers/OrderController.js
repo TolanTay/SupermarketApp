@@ -7,9 +7,11 @@ const NetsQrService = require('../services/NetsQrService');
 const PaypalService = require('../services/PaypalService');
 const PaypalTransaction = require('../models/PaypalTransaction');
 const Wallet = require('../models/Wallet');
+const RefundRequest = require('../models/RefundRequest');
 const NetsTransaction = require('../models/NetsTransaction');
 
 const round2 = (v) => Math.round((v + Number.EPSILON) * 100) / 100;
+const WALLET_PIN_THRESHOLD = 50;
 
 const getOrderItemsFromCart = (uid, cb) => {
   Cart.getUserCart(uid, (err, rows) => {
@@ -101,7 +103,8 @@ const OrderController = {
       const total = round2(items.reduce((s,i) => s + i.subtotal, 0));
       Wallet.getBalance(uid, (bErr, balance) => {
         if (bErr) console.error('checkoutView wallet error', bErr);
-        res.render('checkout', { cartItems: items, total, walletBalance: balance || 0, user: req.session.user, messages: req.flash() });
+        const walletPinRequired = total >= WALLET_PIN_THRESHOLD;
+        res.render('checkout', { cartItems: items, total, walletBalance: balance || 0, walletPinRequired, user: req.session.user, messages: req.flash() });
       });
     });
   },
@@ -205,7 +208,8 @@ const OrderController = {
       return res.redirect('/checkout');
     }
 
-    Order.createOrderWithItems(uid, pending.items, pending.total, (orderErr, orderId) => {
+    const isTest = req.session.user && req.session.user.role === 'admin';
+    Order.createOrderWithItems(uid, pending.items, pending.total, isTest, (orderErr, orderId) => {
       if (orderErr) {
         console.error('finalizeNetsQr - createOrderWithItems error', orderErr);
         req.flash('error', 'Failed to create order');
@@ -225,6 +229,11 @@ const OrderController = {
           });
         }
         if (pending.txn_retrieval_ref) {
+          NetsTransaction.attachOrderByTxnRef(pending.txn_retrieval_ref, orderId, (linkErr) => {
+            if (linkErr) console.error('finalizeNetsQr - attachOrderByTxnRef error', linkErr);
+          });
+        }
+        if (pending.txn_retrieval_ref) {
           NetsTransaction.updateByTxnRef(pending.txn_retrieval_ref, {
             status: 'success'
           }, (updErr) => {
@@ -232,6 +241,10 @@ const OrderController = {
           });
         }
         const orderObj = { id: orderId, total: pending.total };
+        if (isTest) {
+          req.session.netsPending = null;
+          return res.render('netsTxnSuccessStatus', { message: 'Transaction Successful!', orderId, user: req.session.user });
+        }
         const html = InvoiceService.formatHtml(orderObj, pending.items);
         InvoiceService.save(uid, html, (invErr) => {
           if (invErr) console.error('Failed to save invoice:', invErr);
@@ -255,74 +268,99 @@ const OrderController = {
         return res.redirect('/checkout');
       }
 
-      Wallet.debit(uid, total, { type: 'payment', method: 'wallet', status: 'completed', note: 'Wallet payment' }, (wErr) => {
-        if (wErr) {
-          if (wErr.message === 'INSUFFICIENT_FUNDS') {
-            Wallet.logFailure(uid, total, {
-              type: 'payment',
-              method: 'wallet',
-              status: 'failed',
-              note: 'Insufficient wallet balance'
-            }, (logErr) => {
-              if (logErr) console.error('wallet failure log error', logErr);
-            });
-            req.flash('error', 'Insufficient wallet balance.');
-          } else {
-            Wallet.logFailure(uid, total, {
-              type: 'payment',
-              method: 'wallet',
-              status: 'failed',
-              note: 'Wallet payment failed'
-            }, (logErr) => {
-              if (logErr) console.error('wallet failure log error', logErr);
-            });
-            console.error('payWithWallet wallet error', wErr);
-            req.flash('error', 'Failed to charge wallet.');
-          }
-          return res.redirect('/checkout');
-        }
-        Wallet.getBalance(uid, (bErr, balance) => {
-          if (!bErr && req.session && req.session.user) {
-            req.session.user.wallet_balance = Number(balance || 0);
-          }
-        });
-
-        Order.createOrderWithItems(uid, items, total, (orderErr, orderId) => {
-          if (orderErr) {
-            console.error('payWithWallet - createOrderWithItems error', orderErr);
-            Wallet.credit(uid, total, {
-              type: 'refund',
-              method: 'wallet',
-              status: 'completed',
-              note: 'Auto-refund after order failure'
-            }, (rErr) => {
-              if (rErr) console.error('payWithWallet refund error', rErr);
-            });
-            req.flash('error', 'Failed to create order');
+      const processWalletPayment = () => {
+        Wallet.debit(uid, total, { type: 'payment', method: 'wallet', status: 'completed', note: 'Wallet payment' }, (wErr) => {
+          if (wErr) {
+            if (wErr.message === 'INSUFFICIENT_FUNDS') {
+              Wallet.logFailure(uid, total, {
+                type: 'payment',
+                method: 'wallet',
+                status: 'failed',
+                note: 'Insufficient wallet balance'
+              }, (logErr) => {
+                if (logErr) console.error('wallet failure log error', logErr);
+              });
+              req.flash('error', 'Insufficient wallet balance.');
+            } else {
+              Wallet.logFailure(uid, total, {
+                type: 'payment',
+                method: 'wallet',
+                status: 'failed',
+                note: 'Wallet payment failed'
+              }, (logErr) => {
+                if (logErr) console.error('wallet failure log error', logErr);
+              });
+              console.error('payWithWallet wallet error', wErr);
+              req.flash('error', 'Failed to charge wallet.');
+            }
             return res.redirect('/checkout');
           }
-
-          Wallet.attachOrderToLatestPayment(uid, total, orderId, (aErr) => {
-            if (aErr) console.error('payWithWallet - attach wallet order error', aErr);
+          Wallet.getBalance(uid, (bErr, balance) => {
+            if (!bErr && req.session && req.session.user) {
+              req.session.user.wallet_balance = Number(balance || 0);
+            }
           });
-
-          Cart.clearCart(uid, (clearErr) => {
-            if (clearErr) {
-              console.error('payWithWallet - clearCart error', clearErr);
-              req.flash('error', 'Order created but failed to clear cart. Please contact support.');
+  
+          const isTest = req.session.user && req.session.user.role === 'admin';
+          Order.createOrderWithItems(uid, items, total, isTest, (orderErr, orderId) => {
+            if (orderErr) {
+              console.error('payWithWallet - createOrderWithItems error', orderErr);
+              Wallet.credit(uid, total, {
+                type: 'refund',
+                method: 'wallet',
+                status: 'completed',
+                note: 'Auto-refund after order failure'
+              }, (rErr) => {
+                if (rErr) console.error('payWithWallet refund error', rErr);
+              });
+              req.flash('error', 'Failed to create order');
               return res.redirect('/checkout');
             }
-
+  
+            Wallet.attachOrderToLatestPayment(uid, total, orderId, (aErr) => {
+              if (aErr) console.error('payWithWallet - attach wallet order error', aErr);
+            });
+  
+            Cart.clearCart(uid, (clearErr) => {
+              if (clearErr) {
+                console.error('payWithWallet - clearCart error', clearErr);
+                req.flash('error', 'Order created but failed to clear cart. Please contact support.');
+                return res.redirect('/checkout');
+              }
+  
             const orderObj = { id: orderId, total };
+            if (isTest) {
+              req.flash('success', 'Wallet payment completed. Order #' + orderId);
+              return res.redirect('/history');
+            }
             const html = InvoiceService.formatHtml(orderObj, items);
             InvoiceService.save(uid, html, (invErr) => {
               if (invErr) console.error('Failed to save invoice:', invErr);
               req.flash('success', 'Wallet payment completed. Order #' + orderId);
               return res.redirect('/history');
             });
+            });
           });
         });
-      });
+      };
+
+      if (total >= WALLET_PIN_THRESHOLD) {
+        const pin = String(req.body.wallet_pin || '').trim();
+        if (!/^\d{4}$/.test(pin)) {
+          req.flash('error', 'Wallet PIN is required for this amount.');
+          return res.redirect('/checkout');
+        }
+        const User = require('../models/User');
+        return User.verifyWalletPin(uid, pin, (pinErr, ok) => {
+          if (pinErr || !ok) {
+            req.flash('error', 'Invalid wallet PIN.');
+            return res.redirect('/checkout');
+          }
+          return processWalletPayment();
+        });
+      }
+
+      return processWalletPayment();
     });
   },
 
@@ -365,7 +403,8 @@ const OrderController = {
         return res.status(400).json({ error: 'Payment not completed', details: capture });
       }
 
-      Order.createOrderWithItems(uid, pending.items, pending.total, (orderErr, orderId) => {
+      const isTest = req.session.user && req.session.user.role === 'admin';
+      Order.createOrderWithItems(uid, pending.items, pending.total, isTest, (orderErr, orderId) => {
         if (orderErr) {
           console.error('capturePaypalOrder - createOrderWithItems error', orderErr);
           return res.status(500).json({ error: 'Failed to create order' });
@@ -396,7 +435,13 @@ const OrderController = {
           }, (logErr) => {
             if (logErr) console.error('capturePaypalOrder - log transaction error', logErr);
             req.session.paypalPending = null;
-            return res.json({ success: true, orderId });
+            if (isTest) return res.json({ success: true, orderId });
+            const orderObj = { id: orderId, total: pending.total };
+            const html = InvoiceService.formatHtml(orderObj, pending.items);
+            InvoiceService.save(uid, html, (invErr) => {
+              if (invErr) console.error('Failed to save invoice:', invErr);
+              return res.json({ success: true, orderId });
+            });
           });
         });
       });
@@ -425,6 +470,7 @@ const OrderController = {
             id: oid,
             total: Number(r.total),
             created_at: r.created_at,
+            is_test: r.is_test,
             items: []
           });
         }
@@ -456,7 +502,12 @@ const OrderController = {
             if (wErr) console.error('purchaseHistory wallet lookup error', wErr);
             const walletMap = new Map();
             (wRows || []).forEach(r => walletMap.set(String(r.orderId), r));
-            res.render('purchaseHistory', { orders, paypalMap, netsMap, walletMap, user: req.session.user, messages: req.flash() });
+            RefundRequest.getByOrderIds(orderIds, (rErr, rRows) => {
+              if (rErr) console.error('purchaseHistory refund lookup error', rErr);
+              const refundMap = new Map();
+              (rRows || []).forEach(r => refundMap.set(String(r.orderId), r));
+              res.render('purchaseHistory', { orders, paypalMap, netsMap, walletMap, refundMap, user: req.session.user, messages: req.flash() });
+            });
           });
         });
       });
@@ -483,6 +534,7 @@ const OrderController = {
             email: r.email,
             total: Number(r.total),
             created_at: r.created_at,
+            is_test: r.is_test,
             items: []
           });
         }
@@ -510,7 +562,12 @@ const OrderController = {
           if (nErr) console.error('adminOrderHistory nets lookup error', nErr);
           const netsMap = new Map();
           (nRows || []).forEach(r => netsMap.set(String(r.orderId), r));
-          res.render('admin/orders', { orders, paypalMap, netsMap, user: req.session.user, messages: req.flash() });
+          RefundRequest.getByOrderIds(orderIds, (rErr, rRows) => {
+            if (rErr) console.error('adminOrderHistory refund lookup error', rErr);
+            const refundMap = new Map();
+            (rRows || []).forEach(r => refundMap.set(String(r.orderId), r));
+            res.render('admin/orders', { orders, paypalMap, netsMap, refundMap, user: req.session.user, messages: req.flash() });
+          });
         });
       });
     });

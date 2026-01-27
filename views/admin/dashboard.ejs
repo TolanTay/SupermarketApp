@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Admin Dashboard</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <%- include('../partials/navbar', { user: user }) %>
+
+  <section class="sa-hero">
+    <div class="container">
+      <div class="eyebrow">Admin</div>
+      <h1>Admin dashboard.</h1>
+      <p>Quick access to analytics, orders, users, and inventory.</p>
+    </div>
+  </section>
+
+  <main class="container page-shell">
+    <% if (messages && messages.error && messages.error.length) { %>
+      <div class="alert alert-danger"><%= messages.error[0] %></div>
+    <% } %>
+    <% if (messages && messages.success && messages.success.length) { %>
+      <div class="alert alert-success"><%= messages.success[0] %></div>
+    <% } %>
+
+    <div class="row g-3">
+      <div class="col-md-6 col-lg-4">
+        <div class="card h-100">
+          <div class="card-body">
+            <h5 class="card-title">Analytics</h5>
+            <p class="card-text text-muted">Top products, revenue, and order activity.</p>
+            <a href="/admin/analytics" class="btn btn-outline-primary">View analytics</a>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-6 col-lg-4">
+        <div class="card h-100">
+          <div class="card-body">
+            <h5 class="card-title">Orders</h5>
+            <p class="card-text text-muted">Manage orders, refunds, and exports.</p>
+            <a href="/admin/orders" class="btn btn-outline-primary">View orders</a>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-6 col-lg-4">
+        <div class="card h-100">
+          <div class="card-body">
+            <h5 class="card-title">Users</h5>
+            <p class="card-text text-muted">Manage user accounts and profiles.</p>
+            <a href="/admin/users" class="btn btn-outline-primary">View users</a>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-6 col-lg-4">
+        <div class="card h-100">
+          <div class="card-body">
+            <h5 class="card-title">Products</h5>
+            <p class="card-text text-muted">Add or update your inventory.</p>
+            <a href="/addProduct" class="btn btn-outline-primary">Add product</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

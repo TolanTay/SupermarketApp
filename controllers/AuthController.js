@@ -13,12 +13,13 @@ module.exports = {
   },
 
   register: (req, res) => {
-    const { username, password, email, address, contact } = req.body;
+    const { username, password, email, address, contact, wallet_pin } = req.body;
 
     const errors = [];
     if (!username || !username.trim()) errors.push('Username is required');
     if (!password || password.length < 4) errors.push('Password must be at least 4 characters');
     if (!email || !email.includes('@')) errors.push('Valid email is required');
+    if (!wallet_pin || !/^\d{4}$/.test(wallet_pin)) errors.push('Wallet PIN must be 4 digits');
     // optional but helpful validation
     if (contact && !/^[0-9+\-\s()]{4,20}$/.test(contact)) errors.push('Contact number looks invalid');
 
@@ -42,7 +43,7 @@ module.exports = {
         return res.redirect('/register');
       }
 
-      User.create({ username, email, password, address: address || null, contact: contact || null }, (err) => {
+      User.create({ username, email, password, address: address || null, contact: contact || null, wallet_pin }, (err) => {
         if (err) {
           console.error('User.create error:', err);
           req.session.formData = { username: username || '', email: email || '', address: address || '', contact: contact || '' };

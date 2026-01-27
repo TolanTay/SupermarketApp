@@ -19,6 +19,7 @@ const OrderItemController = require('./controllers/OrderItemController');
 const NetsQrService = require('./services/NetsQrService');
 const NetsTransaction = require('./models/NetsTransaction');
 const WalletController = require('./controllers/WalletController');
+const RefundController = require('./controllers/RefundController');
 
 // Import middleware
 const { checkAuthenticated, checkAdmin } = require('./middleware/auth');
@@ -202,13 +203,18 @@ app.get('/sse/payment-status/:txnRetrievalRef', checkAuthenticated, async (req, 
 });
 app.get('/history', checkAuthenticated, OrderController.purchaseHistory);
 app.get('/orders/:orderId/items', checkAuthenticated, OrderItemController.listByOrder);
+app.post('/refunds/:orderId', checkAuthenticated, RefundController.create);
 app.get('/wallet', checkAuthenticated, WalletController.show);
 app.post('/wallet/topup/nets', checkAuthenticated, WalletController.topupNets);
+app.post('/wallet/topup/admin', checkAuthenticated, WalletController.adminTopup);
 app.post('/api/paypal/topup/create-order', checkAuthenticated, WalletController.createPaypalTopup);
 app.post('/api/paypal/topup/capture-order', checkAuthenticated, WalletController.capturePaypalTopup);
 
 // Admin routes
 app.get('/admin/analytics', checkAuthenticated, checkAdmin, AdminAnalyticsController.dashboard);
+app.get('/admin', checkAuthenticated, checkAdmin, (req, res) => {
+  res.render('admin/dashboard', { user: req.session.user, messages: req.flash() });
+});
 app.get('/admin/users', checkAuthenticated, checkAdmin, UserController.list);
 app.post('/admin/users/create', checkAuthenticated, checkAdmin, UserController.create);
 app.post('/admin/users/update/:id', checkAuthenticated, checkAdmin, UserController.update);
@@ -219,6 +225,8 @@ app.get('/admin/orders', checkAuthenticated, checkAdmin, OrderController.adminOr
 app.get('/admin/orders/export', checkAuthenticated, checkAdmin, OrderController.adminDownloadOrders);
 app.post('/admin/orders/:orderId/refund/paypal', checkAuthenticated, checkAdmin, OrderController.adminRefundPaypal);
 app.post('/admin/orders/:orderId/refund/wallet', checkAuthenticated, checkAdmin, OrderController.adminRefundWalletForNets);
+app.post('/admin/orders/:orderId/refund/request/approve', checkAuthenticated, checkAdmin, RefundController.adminApprove);
+app.post('/admin/orders/:orderId/refund/request/reject', checkAuthenticated, checkAdmin, RefundController.adminReject);
 // Admin order maintenance
 app.post('/admin/orders/:orderId/delete', checkAuthenticated, checkAdmin, OrderController.adminDeleteOrder);
 app.post('/admin/orders/:orderId/items/:itemId/delete', checkAuthenticated, checkAdmin, OrderController.adminDeleteOrderItem);

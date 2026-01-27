@@ -35,6 +35,14 @@
           <div class="panel-body">
             <h2 class="mb-2">$<%= Number(balance || 0).toFixed(2) %></h2>
             <p class="text-muted mb-0">Available for checkout.</p>
+            <% if (user && user.role === 'admin') { %>
+              <hr />
+              <form action="/wallet/topup/admin" method="POST" class="d-flex gap-2 align-items-center">
+                <input type="number" name="amount" min="1" step="0.01" class="form-control form-control-sm" placeholder="Admin top-up">
+                <button type="submit" class="btn btn-sm btn-outline-secondary">Admin top-up</button>
+              </form>
+              <div class="small text-muted mt-2">Test funds. No stock or analytics impact.</div>
+            <% } %>
           </div>
         </div>
       </div>

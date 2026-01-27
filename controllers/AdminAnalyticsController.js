@@ -6,6 +6,8 @@ const AdminAnalyticsController = {
     const topByQty = `
       SELECT oi.productId, oi.productName, SUM(oi.quantity) AS totalQty, COUNT(DISTINCT oi.orderId) AS orderCount
       FROM order_items oi
+      JOIN orders o ON o.id = oi.orderId
+      WHERE o.is_test = 0
       GROUP BY oi.productId, oi.productName
       ORDER BY totalQty DESC
       LIMIT 10
@@ -15,6 +17,8 @@ const AdminAnalyticsController = {
     const topByRevenue = `
       SELECT oi.productId, oi.productName, SUM(oi.subtotal) AS totalRevenue, SUM(oi.quantity) AS totalQty
       FROM order_items oi
+      JOIN orders o ON o.id = oi.orderId
+      WHERE o.is_test = 0
       GROUP BY oi.productId, oi.productName
       ORDER BY totalRevenue DESC
       LIMIT 10
@@ -26,6 +30,7 @@ const AdminAnalyticsController = {
       FROM orders o
       LEFT JOIN users u ON u.id = o.userId
       LEFT JOIN order_items oi ON oi.orderId = o.id
+      WHERE o.is_test = 0
       GROUP BY o.id
       ORDER BY o.created_at DESC
       LIMIT 20

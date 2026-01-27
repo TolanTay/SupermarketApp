@@ -25,6 +25,7 @@ const CartController = {
     const productId = parseInt(req.params.id,10);
     const qty = Math.max(1, parseInt(req.body.quantity,10) || 1);
 
+    const skipStock = req.session.user && req.session.user.role === 'admin';
     Cart.addToCart(uid, productId, qty, (err, result) => {
       if (err) {
         console.error('addToCart error', err);
@@ -33,7 +34,7 @@ const CartController = {
       }
       req.flash('success','Added to cart');
       return res.redirect(req.get('Referer') || '/shopping');
-    });
+    }, { skipStock });
   },
 
   updateItem: (req, res) => {
@@ -43,13 +44,14 @@ const CartController = {
     const newQty = parseInt(req.body.quantity,10);
     if (!Number.isInteger(newQty) || newQty < 1) return CartController.removeItem(req, res);
 
+    const skipStock = req.session.user && req.session.user.role === 'admin';
     Cart.updateCartQuantity(uid, productId, newQty, (err) => {
       if (err) {
         console.error('updateItem error', err);
         req.flash('error', err.message || 'Failed to update cart item');
       }
       return res.redirect('/cart');
-    });
+    }, { skipStock });
   },
 
   removeItem: (req, res) => {
@@ -57,13 +59,14 @@ const CartController = {
     if (!uid) { req.flash('error','Please login'); return res.redirect('/login'); }
     const productId = parseInt(req.params.id,10);
 
+    const skipStock = req.session.user && req.session.user.role === 'admin';
     Cart.removeFromCart(uid, productId, (err) => {
       if (err) {
         console.error('removeItem error', err);
         req.flash('error', err.message || 'Failed to remove item');
       }
       return res.redirect('/cart');
-    });
+    }, { skipStock });
   }
 };
 

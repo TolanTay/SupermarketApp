@@ -71,6 +71,10 @@
             <input id="contact" name="contact" type="text" class="form-control"
               value="<%= formData && formData.contact ? formData.contact : '' %>">
           </div>
+          <div class="mb-3">
+            <label for="wallet_pin" class="form-label">Wallet PIN (4 digits)</label>
+            <input id="wallet_pin" name="wallet_pin" type="password" class="form-control" maxlength="4" pattern="\\d{4}" required>
+          </div>
 
           <div class="d-grid">
             <button class="btn btn-primary">Register</button>

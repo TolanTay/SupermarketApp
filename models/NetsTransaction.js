@@ -48,6 +48,10 @@ const NetsTransaction = {
     const sql = 'UPDATE nets_transactions SET orderId = ? WHERE id = ?';
     db.query(sql, [orderId, id], cb);
   },
+  attachOrderByTxnRef: (txnRef, orderId, cb) => {
+    const sql = 'UPDATE nets_transactions SET orderId = ? WHERE txn_retrieval_ref = ?';
+    db.query(sql, [orderId, txnRef], cb);
+  },
 
   getByOrderIds: (orderIds, cb) => {
     if (!orderIds || !orderIds.length) return cb(null, []);

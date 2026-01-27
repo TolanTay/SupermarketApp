@@ -9,9 +9,10 @@ const User = {
     const address = data.address || null;
     const contact = data.contact || null;
     const role = data.role || 'user';
-    const sql = `INSERT INTO users (username, email, password, address, contact, role)
-                 VALUES (?, ?, SHA1(?), ?, ?, ?)`;
-    db.query(sql, [username, email, password, address, contact, role], cb);
+    const walletPin = data.wallet_pin || data.walletPin || null;
+    const sql = `INSERT INTO users (username, email, password, address, contact, role, wallet_pin)
+                 VALUES (?, ?, SHA1(?), ?, ?, ?, SHA1(?))`;
+    db.query(sql, [username, email, password, address, contact, role, walletPin], cb);
   },
 
   // Find by username/email and password (used for login)
@@ -29,6 +30,13 @@ const User = {
     db.query('SELECT id, username, email, role, address, contact, avatar, wallet_balance FROM users WHERE id = ? LIMIT 1', [id], (err, rows) => {
       if (err) return cb(err);
       return cb(null, rows && rows[0] ? rows[0] : null);
+    });
+  },
+
+  verifyWalletPin: (id, pin, cb) => {
+    db.query('SELECT 1 FROM users WHERE id = ? AND wallet_pin = SHA1(?) LIMIT 1', [id, pin], (err, rows) => {
+      if (err) return cb(err);
+      return cb(null, !!(rows && rows.length));
     });
   },
 

@@ -150,6 +150,28 @@ const WalletController = {
       res.status(500).json({ error: 'PayPal capture failed' });
     });
   }
+  ,
+
+  adminTopup: (req, res) => {
+    const uid = req.session.user && req.session.user.id;
+    const isAdmin = req.session.user && req.session.user.role === 'admin';
+    if (!uid || !isAdmin) return res.redirect('/wallet');
+    const amount = Number(req.body.amount);
+    if (!amount || amount <= 0) {
+      req.flash('error', 'Enter a valid amount.');
+      return res.redirect('/wallet');
+    }
+    Wallet.credit(uid, amount, {
+      type: 'topup',
+      method: 'admin',
+      status: 'completed',
+      note: 'Admin test top-up'
+    }, (err) => {
+      if (err) console.error('admin topup error', err);
+      req.flash('success', 'Admin top-up added.');
+      return res.redirect('/wallet');
+    });
+  }
 };
 
 module.exports = WalletController;

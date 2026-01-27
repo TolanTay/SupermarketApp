@@ -59,6 +59,7 @@
         </table>
       </div>
 
+      <% const pinReq = Number(total || 0) >= 50; %>
       <div class="checkout-payments">
         <div class="payment-card">
           <div class="payment-label">NETS QR</div>
@@ -79,9 +80,13 @@
           <p class="payment-muted mb-2">Use your balance for a fast checkout.</p>
           <div class="payment-note mb-3">Balance: $<%= Number(walletBalance || 0).toFixed(2) %></div>
           <form action="/checkout/wallet" method="POST" class="d-flex gap-2">
+            <input type="password" name="wallet_pin" maxlength="4" pattern="\\d{4}" class="form-control form-control-sm" placeholder="Wallet PIN" style="max-width:130px;" <%= pinReq ? 'required' : '' %>>
             <button type="submit" class="btn btn-outline-secondary">Pay with Wallet</button>
             <a href="/wallet" class="btn btn-link">Top up</a>
           </form>
+          <% if (pinReq) { %>
+            <div class="small text-muted mt-2">Wallet PIN required for payments of $50 or more.</div>
+          <% } %>
         </div>
       </div>
     <% } %>

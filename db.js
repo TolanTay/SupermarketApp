@@ -13,6 +13,18 @@ connection.connect(err => {
   }
   console.log('DB connected');
 
+  const ensureColumn = (table, column, definition) => {
+    const sql = `SHOW COLUMNS FROM ${table} LIKE ?`;
+    connection.query(sql, [column], (err, cols) => {
+      if (err) return console.error(`Failed to verify ${table}.${column}:`, err);
+      if (!cols || !cols.length) {
+        connection.query(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`, (alterErr) => {
+          if (alterErr) console.error(`Failed to add ${table}.${column}:`, alterErr);
+        });
+      }
+    });
+  };
+
   const createCart = `
     CREATE TABLE IF NOT EXISTS cart (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -54,6 +66,8 @@ connection.connect(err => {
     if (errNets) console.error('Failed to create nets_transactions table:', errNets);
   });
 
+  ensureColumn('orders', 'is_test', 'TINYINT(1) NOT NULL DEFAULT 0');
+
   const createPaypalTransactions = `
     CREATE TABLE IF NOT EXISTS paypal_transactions (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -81,18 +95,6 @@ connection.connect(err => {
     if (errPaypal) console.error('Failed to create paypal_transactions table:', errPaypal);
   });
 
-  const ensureColumn = (table, column, definition) => {
-    const sql = `SHOW COLUMNS FROM ${table} LIKE ?`;
-    connection.query(sql, [column], (err, cols) => {
-      if (err) return console.error(`Failed to verify ${table}.${column}:`, err);
-      if (!cols || !cols.length) {
-        connection.query(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`, (alterErr) => {
-          if (alterErr) console.error(`Failed to add ${table}.${column}:`, alterErr);
-        });
-      }
-    });
-  };
-
   ensureColumn('paypal_transactions', 'capture_id', 'VARCHAR(64)');
   ensureColumn('paypal_transactions', 'refund_status', "VARCHAR(20) NOT NULL DEFAULT 'none'");
   ensureColumn('paypal_transactions', 'refund_id', 'VARCHAR(64)');
@@ -118,6 +120,31 @@ connection.connect(err => {
   });
 
   ensureColumn('users', 'wallet_balance', 'DECIMAL(10,2) NOT NULL DEFAULT 0');
+  ensureColumn('users', 'wallet_pin', 'VARCHAR(64)');
+
+  // Set default wallet PIN for existing users (0000)
+  connection.query("UPDATE users SET wallet_pin = SHA1('0000') WHERE wallet_pin IS NULL", (pinErr) => {
+    if (pinErr) console.error('Failed to set default wallet PIN:', pinErr);
+  });
+
+  const createRefundRequests = `
+    CREATE TABLE IF NOT EXISTS refund_requests (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      orderId INT NOT NULL,
+      userId INT NOT NULL,
+      method VARCHAR(20) NOT NULL,
+      reason VARCHAR(255) NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      admin_message VARCHAR(255),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      resolved_at TIMESTAMP NULL,
+      INDEX idx_order (orderId),
+      INDEX idx_user (userId)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `;
+  connection.query(createRefundRequests, (errRefund) => {
+    if (errRefund) console.error('Failed to create refund_requests table:', errRefund);
+  });
 
   // --- NEW: capture initial product stock snapshot on startup (prefer persistent initialQuantity) ---
   connection.query('SELECT id, quantity, initialQuantity FROM products', (err3, rows) => {

@@ -3,8 +3,8 @@ const OrderItem = require('./OrderItem');
 
 const Order = {
   // Create an order row only
-  create: (userId, total, cb) => {
-    db.query('INSERT INTO orders (userId, total) VALUES (?, ?)', [userId, total], (err, result) => {
+  create: (userId, total, isTest, cb) => {
+    db.query('INSERT INTO orders (userId, total, is_test) VALUES (?, ?, ?)', [userId, total, isTest ? 1 : 0], (err, result) => {
       if (err) return cb(err);
       cb(null, result.insertId);
     });
@@ -66,10 +66,10 @@ const Order = {
   },
 
   // Transactional create of order and its items
-  createOrderWithItems: (userId, items, total, cb) => {
+  createOrderWithItems: (userId, items, total, isTest, cb) => {
     db.beginTransaction(err => {
       if (err) return cb(err);
-      Order.create(userId, total, (orderErr, orderId) => {
+      Order.create(userId, total, isTest, (orderErr, orderId) => {
         if (orderErr) return db.rollback(() => cb(orderErr));
         OrderItem.createMany(orderId, items, (itemErr) => {
           if (itemErr) return db.rollback(() => cb(itemErr));
@@ -84,7 +84,7 @@ const Order = {
 
   getByUserGrouped: (userId, cb) => {
     const sql = `
-      SELECT o.id AS orderId, o.total, o.created_at,
+      SELECT o.id AS orderId, o.total, o.created_at, o.is_test,
              oi.id AS itemId, oi.productId, oi.productName, oi.quantity, oi.base_price, oi.discount_rate, oi.unit_price_after_discount, oi.subtotal
       FROM orders o
       LEFT JOIN order_items oi ON oi.orderId = o.id
@@ -97,7 +97,7 @@ const Order = {
   // Admin: get every order with user + items for reporting
   getAllWithUsersAndItems: (cb) => {
     const sql = `
-      SELECT o.id AS orderId, o.userId, u.username, u.email, o.total, o.created_at,
+      SELECT o.id AS orderId, o.userId, u.username, u.email, o.total, o.created_at, o.is_test,
              oi.id AS itemId, oi.productId, oi.productName, oi.quantity, oi.base_price, oi.discount_rate, oi.unit_price_after_discount, oi.subtotal
       FROM orders o
       LEFT JOIN users u ON u.id = o.userId

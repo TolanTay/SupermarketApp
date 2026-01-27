@@ -50,8 +50,14 @@
             </div>
             <div class="fw-bold text-primary">Total: $<%= Number(order.total).toFixed(2) %></div>
           </div>
+          <% if (order.is_test) { %>
+            <div class="card-body border-top">
+              <span class="badge bg-secondary">Test order (admin)</span>
+            </div>
+          <% } %>
           <% const paypalTxn = (typeof paypalMap !== 'undefined' && paypalMap && paypalMap.get) ? paypalMap.get(String(order.id)) : null; %>
           <% const netsTxn = (typeof netsMap !== 'undefined' && netsMap && netsMap.get) ? netsMap.get(String(order.id)) : null; %>
+          <% const refundReq = (typeof refundMap !== 'undefined' && refundMap && refundMap.get) ? refundMap.get(String(order.id)) : null; %>
           <% if (paypalTxn) { %>
             <div class="card-body border-top d-flex flex-wrap justify-content-between align-items-center gap-2">
               <div>
@@ -77,6 +83,29 @@
                 <form action="/admin/orders/<%= order.id %>/refund/wallet" method="POST" class="m-0">
                   <button type="submit" class="btn btn-sm btn-outline-warning" onclick="return confirm('Refund to wallet?');">Refund to Wallet</button>
                 </form>
+              <% } %>
+            </div>
+          <% } %>
+          <% if (refundReq) { %>
+            <div class="card-body border-top">
+              <div class="small text-muted mb-2">
+                Refund request: <strong><%= refundReq.status %></strong>
+                <% if (refundReq.reason) { %> — <%= refundReq.reason %><% } %>
+              </div>
+              <% if (refundReq.status === 'pending') { %>
+                <div class="d-flex flex-wrap gap-2">
+                  <form action="/admin/orders/<%= order.id %>/refund/request/approve" method="POST" class="m-0">
+                    <button type="submit" class="btn btn-sm btn-primary">Approve</button>
+                  </form>
+                  <form action="/admin/orders/<%= order.id %>/refund/request/reject" method="POST" class="m-0 d-flex gap-2">
+                    <input type="text" name="admin_message" class="form-control form-control-sm" placeholder="Rejection reason">
+                    <button type="submit" class="btn btn-sm btn-outline-danger">Reject</button>
+                  </form>
+                </div>
+              <% } else { %>
+                <% if (refundReq.admin_message) { %>
+                  <div class="small text-muted mt-2">Admin note: <%= refundReq.admin_message %></div>
+                <% } %>
               <% } %>
             </div>
           <% } %>
