@@ -1,8 +1,10 @@
 const Order = require('../models/Order');
 const PaypalTransaction = require('../models/PaypalTransaction');
 const NetsTransaction = require('../models/NetsTransaction');
+const StripeTransaction = require('../models/StripeTransaction');
 const RefundRequest = require('../models/RefundRequest');
 const PaypalService = require('../services/PaypalService');
+const StripeService = require('../services/StripeService');
 const Wallet = require('../models/Wallet');
 
 const RefundController = {
@@ -42,30 +44,36 @@ const RefundController = {
             req.flash('error', 'Failed to create refund request');
             return res.redirect('/history');
           }
-          NetsTransaction.getByOrderId(orderId, (nErr, nTxn) => {
-            if (nErr) {
+          StripeTransaction.getByOrderId(orderId, (sErr, sTxn) => {
+            if (sErr) {
               req.flash('error', 'Failed to create refund request');
               return res.redirect('/history');
             }
-            Wallet.getPaymentByOrderIds([orderId], (wErr, wRows) => {
-              if (wErr) {
+            NetsTransaction.getByOrderId(orderId, (nErr, nTxn) => {
+              if (nErr) {
                 req.flash('error', 'Failed to create refund request');
                 return res.redirect('/history');
               }
-              const wTxn = wRows && wRows[0];
-              const method = pTxn ? 'paypal' : (nTxn ? 'nets' : (wTxn ? 'wallet' : null));
-              if (!method) {
-                req.flash('error', 'No payment method found for this order');
-                return res.redirect('/history');
-              }
-
-              RefundRequest.create({ orderId, userId: uid, method, reason }, (cErr) => {
-                if (cErr) {
+              Wallet.getPaymentByOrderIds([orderId], (wErr, wRows) => {
+                if (wErr) {
                   req.flash('error', 'Failed to create refund request');
-                } else {
-                  req.flash('success', 'Refund request submitted');
+                  return res.redirect('/history');
                 }
-                return res.redirect('/history');
+                const wTxn = wRows && wRows[0];
+                const method = pTxn ? 'paypal' : (sTxn ? 'stripe' : (nTxn ? 'nets' : (wTxn ? 'wallet' : null)));
+                if (!method) {
+                  req.flash('error', 'No payment method found for this order');
+                  return res.redirect('/history');
+                }
+
+                RefundRequest.create({ orderId, userId: uid, method, reason }, (cErr) => {
+                  if (cErr) {
+                    req.flash('error', 'Failed to create refund request');
+                  } else {
+                    req.flash('success', 'Refund request submitted');
+                  }
+                  return res.redirect('/history');
+                });
               });
             });
           });
@@ -109,6 +117,34 @@ const RefundController = {
           }).catch((rErr) => {
             RefundRequest.updateStatus(reqRow.id, { status: 'rejected', admin_message: 'PayPal refund failed' }, () => {
               req.flash('error', 'PayPal refund failed');
+              return res.redirect('/admin/orders');
+            });
+          });
+        });
+      } else if (reqRow.method === 'stripe') {
+        StripeTransaction.getByOrderId(orderId, (sErr, txn) => {
+          if (sErr || !txn || !txn.payment_intent_id) {
+            req.flash('error', 'No Stripe payment intent found');
+            return res.redirect('/admin/orders');
+          }
+          const amountCents = Math.round(Number(txn.amount || 0) * 100);
+          StripeService.refundPaymentIntent(txn.payment_intent_id, amountCents).then((refund) => {
+            StripeTransaction.updateRefund(txn.id, {
+              refund_status: refund && refund.status ? refund.status.toLowerCase() : 'refunded',
+              refund_id: refund.id,
+              refund_response: JSON.stringify(refund)
+            }, () => {});
+            RefundRequest.updateStatus(reqRow.id, { status: 'approved', admin_message: 'Stripe refund issued' }, () => {
+              req.flash('success', 'Refund approved');
+              return res.redirect('/admin/orders');
+            });
+          }).catch((rErr) => {
+            StripeTransaction.updateRefund(txn.id, {
+              refund_status: 'failed',
+              refund_response: JSON.stringify(rErr.response || { error: rErr.message })
+            }, () => {});
+            RefundRequest.updateStatus(reqRow.id, { status: 'rejected', admin_message: 'Stripe refund failed' }, () => {
+              req.flash('error', 'Stripe refund failed');
               return res.redirect('/admin/orders');
             });
           });

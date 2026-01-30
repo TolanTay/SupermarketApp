@@ -6,6 +6,8 @@ const OrderItem = require('../models/OrderItem');
 const NetsQrService = require('../services/NetsQrService');
 const PaypalService = require('../services/PaypalService');
 const PaypalTransaction = require('../models/PaypalTransaction');
+const StripeService = require('../services/StripeService');
+const StripeTransaction = require('../models/StripeTransaction');
 const Wallet = require('../models/Wallet');
 const RefundRequest = require('../models/RefundRequest');
 const NetsTransaction = require('../models/NetsTransaction');
@@ -452,6 +454,126 @@ const OrderController = {
     });
   },
 
+  createStripeSession: (req, res) => {
+    const uid = req.session.user && req.session.user.id; if (!uid) return res.redirect('/login');
+    if (!process.env.STRIPE_SECRET_KEY) {
+      req.flash('error', 'Stripe is not configured.');
+      return res.redirect('/checkout');
+    }
+    getOrderItemsFromCart(uid, async (err, items, total) => {
+      if (err) {
+        console.error('createStripeSession - cart error', err);
+        req.flash('error', 'Failed to read cart');
+        return res.redirect('/checkout');
+      }
+      if (!items.length) {
+        req.flash('error', 'Your cart is empty.');
+        return res.redirect('/checkout');
+      }
+      if (Number(total) <= 0) {
+        req.flash('error', 'Invalid order total.');
+        return res.redirect('/checkout');
+      }
+
+      try {
+        const baseUrl = `${req.protocol}://${req.get('host')}`;
+        const session = await StripeService.createCheckoutSession({
+          items,
+          successUrl: `${baseUrl}/stripe/success?session_id={CHECKOUT_SESSION_ID}`,
+          cancelUrl: `${baseUrl}/stripe/cancel`,
+          metadata: { userId: String(uid), orderTotal: String(total) }
+        });
+        req.session.stripePending = { items, total };
+        return res.redirect(303, session.url);
+      } catch (e) {
+        console.error('createStripeSession error', e);
+        req.flash('error', 'Stripe checkout failed. Please try again.');
+        return res.redirect('/checkout');
+      }
+    });
+  },
+
+  stripeSuccess: (req, res) => {
+    const uid = req.session.user && req.session.user.id; if (!uid) return res.redirect('/login');
+    const sessionId = req.query.session_id;
+    if (!sessionId) {
+      req.flash('error', 'Missing Stripe session.');
+      return res.redirect('/checkout');
+    }
+
+    StripeService.retrieveCheckoutSession(sessionId).then((session) => {
+      if (!session || session.payment_status !== 'paid') {
+        req.flash('error', 'Stripe payment not completed.');
+        return res.redirect('/checkout');
+      }
+
+      const pending = req.session.stripePending;
+      const usePending = pending && pending.items && pending.items.length;
+      const handleOrder = (items, total) => {
+        const isTest = req.session.user && req.session.user.role === 'admin';
+        Order.createOrderWithItems(uid, items, total, isTest, (orderErr, orderId) => {
+          if (orderErr) {
+            console.error('stripeSuccess - createOrderWithItems error', orderErr);
+            req.flash('error', 'Failed to create order');
+            return res.redirect('/checkout');
+          }
+
+          Cart.clearCart(uid, (clearErr) => {
+            if (clearErr) {
+              console.error('stripeSuccess - clearCart error', clearErr);
+              req.flash('error', 'Order created but failed to clear cart.');
+              return res.redirect('/checkout');
+            }
+
+            const pi = session.payment_intent;
+            StripeTransaction.create({
+              userId: uid,
+              orderId,
+              session_id: session.id,
+              payment_intent_id: (pi && pi.id) ? pi.id : pi || null,
+              customer_email: session.customer_details && session.customer_details.email,
+              amount: Number(total),
+              currency: (session.currency || 'sgd').toUpperCase(),
+              status: session.payment_status,
+              raw_response: JSON.stringify(session)
+            }, (logErr) => {
+              if (logErr) console.error('stripeSuccess - log transaction error', logErr);
+              req.session.stripePending = null;
+              if (isTest) return res.redirect('/history');
+              const orderObj = { id: orderId, total };
+              const html = InvoiceService.formatHtml(orderObj, items);
+              InvoiceService.save(uid, html, (invErr) => {
+                if (invErr) console.error('Failed to save invoice:', invErr);
+                return res.redirect('/history');
+              });
+            });
+          });
+        });
+      };
+
+      if (usePending) {
+        return handleOrder(pending.items, pending.total);
+      }
+
+      return getOrderItemsFromCart(uid, (err, items, total) => {
+        if (err || !items.length) {
+          req.flash('error', 'Unable to complete order after Stripe payment.');
+          return res.redirect('/checkout');
+        }
+        return handleOrder(items, total);
+      });
+    }).catch((err) => {
+      console.error('stripeSuccess error', err);
+      req.flash('error', 'Stripe verification failed.');
+      return res.redirect('/checkout');
+    });
+  },
+
+  stripeCancel: (req, res) => {
+    req.flash('error', 'Stripe payment canceled. Please try again.');
+    return res.redirect('/checkout');
+  },
+
   // Purchase history - show user's orders and items grouped by order
   purchaseHistory: (req, res) => {
     const uid = req.session.user && req.session.user.id; if (!uid) return res.redirect('/login');
@@ -502,11 +624,16 @@ const OrderController = {
             if (wErr) console.error('purchaseHistory wallet lookup error', wErr);
             const walletMap = new Map();
             (wRows || []).forEach(r => walletMap.set(String(r.orderId), r));
-            RefundRequest.getByOrderIds(orderIds, (rErr, rRows) => {
-              if (rErr) console.error('purchaseHistory refund lookup error', rErr);
-              const refundMap = new Map();
-              (rRows || []).forEach(r => refundMap.set(String(r.orderId), r));
-              res.render('purchaseHistory', { orders, paypalMap, netsMap, walletMap, refundMap, user: req.session.user, messages: req.flash() });
+            StripeTransaction.getByOrderIds(orderIds, (sErr, sRows) => {
+              if (sErr) console.error('purchaseHistory stripe lookup error', sErr);
+              const stripeMap = new Map();
+              (sRows || []).forEach(r => stripeMap.set(String(r.orderId), r));
+              RefundRequest.getByOrderIds(orderIds, (rErr, rRows) => {
+                if (rErr) console.error('purchaseHistory refund lookup error', rErr);
+                const refundMap = new Map();
+                (rRows || []).forEach(r => refundMap.set(String(r.orderId), r));
+                res.render('purchaseHistory', { orders, paypalMap, netsMap, walletMap, stripeMap, refundMap, user: req.session.user, messages: req.flash() });
+              });
             });
           });
         });
@@ -562,11 +689,16 @@ const OrderController = {
           if (nErr) console.error('adminOrderHistory nets lookup error', nErr);
           const netsMap = new Map();
           (nRows || []).forEach(r => netsMap.set(String(r.orderId), r));
-          RefundRequest.getByOrderIds(orderIds, (rErr, rRows) => {
-            if (rErr) console.error('adminOrderHistory refund lookup error', rErr);
-            const refundMap = new Map();
-            (rRows || []).forEach(r => refundMap.set(String(r.orderId), r));
-            res.render('admin/orders', { orders, paypalMap, netsMap, refundMap, user: req.session.user, messages: req.flash() });
+          StripeTransaction.getByOrderIds(orderIds, (sErr, sRows) => {
+            if (sErr) console.error('adminOrderHistory stripe lookup error', sErr);
+            const stripeMap = new Map();
+            (sRows || []).forEach(r => stripeMap.set(String(r.orderId), r));
+            RefundRequest.getByOrderIds(orderIds, (rErr, rRows) => {
+              if (rErr) console.error('adminOrderHistory refund lookup error', rErr);
+              const refundMap = new Map();
+              (rRows || []).forEach(r => refundMap.set(String(r.orderId), r));
+              res.render('admin/orders', { orders, paypalMap, netsMap, stripeMap, refundMap, user: req.session.user, messages: req.flash() });
+            });
           });
         });
       });

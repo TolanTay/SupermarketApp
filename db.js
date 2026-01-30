@@ -100,6 +100,36 @@ connection.connect(err => {
   ensureColumn('paypal_transactions', 'refund_id', 'VARCHAR(64)');
   ensureColumn('paypal_transactions', 'refund_response', 'TEXT');
 
+  const createStripeTransactions = `
+    CREATE TABLE IF NOT EXISTS stripe_transactions (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      userId INT NOT NULL,
+      orderId INT NULL,
+      session_id VARCHAR(255) NOT NULL,
+      payment_intent_id VARCHAR(255),
+      customer_email VARCHAR(255),
+      amount DECIMAL(10,2) NOT NULL,
+      currency VARCHAR(10) NOT NULL,
+      status VARCHAR(30) NOT NULL,
+      refund_status VARCHAR(20) NOT NULL DEFAULT 'none',
+      refund_id VARCHAR(255),
+      refund_response TEXT,
+      raw_response TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_user (userId),
+      INDEX idx_order (orderId),
+      INDEX idx_session (session_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `;
+  connection.query(createStripeTransactions, (errStripe) => {
+    if (errStripe) console.error('Failed to create stripe_transactions table:', errStripe);
+  });
+
+  ensureColumn('stripe_transactions', 'refund_status', "VARCHAR(20) NOT NULL DEFAULT 'none'");
+  ensureColumn('stripe_transactions', 'refund_id', 'VARCHAR(255)');
+  ensureColumn('stripe_transactions', 'refund_response', 'TEXT');
+
   const createWalletTransactions = `
     CREATE TABLE IF NOT EXISTS wallet_transactions (
       id INT AUTO_INCREMENT PRIMARY KEY,

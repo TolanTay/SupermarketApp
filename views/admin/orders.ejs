@@ -57,6 +57,7 @@
           <% } %>
           <% const paypalTxn = (typeof paypalMap !== 'undefined' && paypalMap && paypalMap.get) ? paypalMap.get(String(order.id)) : null; %>
           <% const netsTxn = (typeof netsMap !== 'undefined' && netsMap && netsMap.get) ? netsMap.get(String(order.id)) : null; %>
+          <% const stripeTxn = (typeof stripeMap !== 'undefined' && stripeMap && stripeMap.get) ? stripeMap.get(String(order.id)) : null; %>
           <% const refundReq = (typeof refundMap !== 'undefined' && refundMap && refundMap.get) ? refundMap.get(String(order.id)) : null; %>
           <% if (paypalTxn) { %>
             <div class="card-body border-top d-flex flex-wrap justify-content-between align-items-center gap-2">
@@ -72,6 +73,16 @@
                   <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Refund this PayPal payment?');">Refund PayPal</button>
                 </form>
               <% } %>
+            </div>
+          <% } else if (stripeTxn) { %>
+            <div class="card-body border-top d-flex flex-wrap justify-content-between align-items-center gap-2">
+              <div>
+                <span class="badge bg-dark me-2">Stripe</span>
+                <span class="small text-muted">Status: <%= stripeTxn.status %></span>
+                <% if (stripeTxn.refund_status && stripeTxn.refund_status !== 'none') { %>
+                  <span class="small text-muted ms-2">Refund: <%= stripeTxn.refund_status %></span>
+                <% } %>
+              </div>
             </div>
           <% } else if (netsTxn) { %>
             <div class="card-body border-top d-flex flex-wrap justify-content-between align-items-center gap-2">

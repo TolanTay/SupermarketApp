@@ -9,20 +9,14 @@
 <body>
   <%- include('partials/navbar', { user: user }) %>
 
-  <section class="sa-hero">
-    <div class="container">
-      <div class="eyebrow">Confirm order</div>
-      <h1>Almost there. Review and confirm your purchase.</h1>
-      <p>Secure your selections with one smooth step. Prices and quantities reflect your latest cart.</p>
-      <div class="hero-actions">
-        <a class="btn btn-outline-primary" href="/shopping">Keep shopping</a>
-        <a class="btn btn-outline-primary" href="/cart">Back to cart</a>
-      </div>
-    </div>
+  <section class="sa-hero sa-hero--compact">
+    <div class="container"></div>
   </section>
 
-  <main class="container page-shell">
-    <h2 class="mb-3">Checkout</h2>
+  <main class="container page-shell page-shell--tight">
+    <div class="section-title section-title--compact">
+      <h2>Checkout</h2>
+    </div>
 
     <% if (messages && messages.error && messages.error.length) { %>
       <div class="alert alert-danger"><%= messages.error[0] %></div>
@@ -35,62 +29,92 @@
       <div class="alert alert-info">Your cart is empty.</div>
       <a href="/shopping" class="btn btn-primary">Continue Shopping</a>
     <% } else { %>
-      <div class="table-card mb-3">
-        <table class="table mb-0">
-          <thead>
-            <tr><th>Product</th><th>Qty</th><th>Price</th><th>Subtotal</th></tr>
-          </thead>
-          <tbody>
-            <% cartItems.forEach(item => { %>
-              <tr>
-                <td><%= item.name %></td>
-                <td><%= item.quantity ?? item.qty %></td>
-                <td>$<%= item.price.toFixed(2) %></td>
-                <td>$<%= item.subtotal.toFixed(2) %></td>
-              </tr>
-            <% }) %>
-          </tbody>
-          <tfoot>
-            <tr>
-              <th colspan="3" class="text-end">Total</th>
-              <th>$<%= total.toFixed(2) %></th>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
+      <div class="checkout-layout">
+        <section class="checkout-left">
+          <div class="table-card checkout-summary">
+            <div class="checkout-summary__header">
+              <div>
+                <div class="summary-title">Order summary</div>
+                <div class="summary-sub">Review items before payment.</div>
+              </div>
+              <div class="summary-total">Total <span>$<%= total.toFixed(2) %></span></div>
+            </div>
+            <table class="table mb-0">
+              <thead>
+                <tr><th>Product</th><th>Qty</th><th>Price</th><th>Subtotal</th></tr>
+              </thead>
+              <tbody>
+                <% cartItems.forEach(item => { %>
+                  <tr>
+                    <td><%= item.name %></td>
+                    <td><%= item.quantity ?? item.qty %></td>
+                    <td>$<%= item.price.toFixed(2) %></td>
+                    <td>$<%= item.subtotal.toFixed(2) %></td>
+                  </tr>
+                <% }) %>
+              </tbody>
+              <tfoot>
+                <tr>
+                  <th colspan="3" class="text-end">Total</th>
+                  <th>$<%= total.toFixed(2) %></th>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </section>
 
-      <% const pinReq = Number(total || 0) >= 50; %>
-      <div class="checkout-payments">
-        <div class="payment-card">
-          <div class="payment-label">NETS QR</div>
-          <p class="payment-muted mb-2">Scan with your banking app after confirming.</p>
-          <div class="payment-note mb-3">Refunds for NETS purchases will be credited to your wallet.</div>
-          <form id="confirm-form" action="/checkout/confirm" method="POST" class="d-flex gap-2">
-            <button id="confirm-btn" class="btn btn-primary">Pay with NETS QR</button>
-          </form>
-        </div>
-        <div class="payment-card">
-          <div class="payment-label">PayPal</div>
-          <p class="payment-muted mb-3">Sign in to approve the payment instantly.</p>
-          <div id="paypal-status" class="payment-note mb-3" style="display:none;"></div>
-          <div id="paypal-button-container"></div>
-        </div>
-        <div class="payment-card">
-          <div class="payment-label">Wallet</div>
-          <p class="payment-muted mb-2">Use your balance for a fast checkout.</p>
-          <div class="payment-note mb-3">Balance: $<%= Number(walletBalance || 0).toFixed(2) %></div>
-          <form action="/checkout/wallet" method="POST" class="d-flex gap-2">
-            <input type="password" name="wallet_pin" maxlength="4" pattern="\\d{4}" class="form-control form-control-sm" placeholder="Wallet PIN" style="max-width:130px;" <%= pinReq ? 'required' : '' %>>
-            <button type="submit" class="btn btn-outline-secondary">Pay with Wallet</button>
-            <a href="/wallet" class="btn btn-link">Top up</a>
-          </form>
-          <% if (pinReq) { %>
-            <div class="small text-muted mt-2">Wallet PIN required for payments of $50 or more.</div>
-          <% } %>
-        </div>
+        <aside class="checkout-right">
+          <% const pinReq = Number(total || 0) >= 50; %>
+          <div class="payment-stack payment-stack--tight">
+            <div class="payment-card payment-card--compact">
+              <form id="confirm-form" action="/checkout/confirm" method="POST">
+                <button id="confirm-btn" class="payment-cta payment-cta--nets payment-cta--equal">NETS QR</button>
+              </form>
+            </div>
+
+            <div class="payment-card payment-card--compact">
+              <div id="paypal-status" class="payment-note mb-2" style="display:none;"></div>
+              <div class="paypal-shell paypal-shell--flat">
+                <div id="paypal-button-container"></div>
+              </div>
+            </div>
+
+            <div class="payment-card payment-card--compact">
+              <% if (process.env.STRIPE_SECRET_KEY) { %>
+                <form action="/stripe/create-session" method="POST">
+                  <button type="submit" class="payment-cta payment-cta--stripe payment-cta--equal">Stripe</button>
+                </form>
+              <% } else { %>
+                <div class="small text-muted">Stripe not configured.</div>
+              <% } %>
+            </div>
+
+            <div class="payment-card payment-card--compact">
+              <div class="payment-label">Wallet</div>
+              <div class="payment-note mb-2">Balance: $<%= Number(walletBalance || 0).toFixed(2) %></div>
+              <form action="/checkout/wallet" method="POST" class="wallet-form wallet-form--stack">
+                <input type="password" name="wallet_pin" maxlength="4" pattern="[0-9]{4}" inputmode="numeric" class="form-control form-control-sm" placeholder="Wallet PIN" <%= pinReq ? 'required' : '' %>>
+                <button type="submit" class="payment-cta payment-cta--wallet payment-cta--rect">Wallet</button>
+                <a href="/wallet" class="btn btn-link p-0">Top up</a>
+              </form>
+            </div>
+
+            <div class="payment-warnings">
+              <div class="warning-line">Refunds for NETS purchases will be credited to your wallet.</div>
+              <% if (pinReq) { %>
+                <div class="warning-line">Wallet PIN required for payments of $50 or more.</div>
+              <% } %>
+            </div>
+          </div>
+        </aside>
       </div>
     <% } %>
   </main>
+
+  <div class="checkout-actions">
+    <a class="btn btn-outline-primary btn-sm" href="/shopping">Keep shopping</a>
+    <a class="btn btn-outline-primary btn-sm" href="/cart">Back to cart</a>
+  </div>
 
   <% if (cartItems && cartItems.length) { %>
     <% if (process.env.PAYPAL_CLIENT_ID) { %>
@@ -107,6 +131,14 @@
           };
 
           paypal.Buttons({
+            style: {
+              layout: 'horizontal',
+              shape: 'rect',
+              height: 32,
+              tagline: false,
+              label: 'paypal',
+              color: 'gold'
+            },
             createOrder: function () {
               return fetch('/api/paypal/create-order', {
               method: 'POST',

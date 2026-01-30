@@ -102,6 +102,9 @@ app.post('/checkout/confirm', checkAuthenticated, OrderController.startNetsQr);
 app.post('/checkout/wallet', checkAuthenticated, OrderController.payWithWallet);
 app.post('/api/paypal/create-order', checkAuthenticated, OrderController.createPaypalOrder);
 app.post('/api/paypal/capture-order', checkAuthenticated, OrderController.capturePaypalOrder);
+app.post('/stripe/create-session', checkAuthenticated, OrderController.createStripeSession);
+app.get('/stripe/success', checkAuthenticated, OrderController.stripeSuccess);
+app.get('/stripe/cancel', checkAuthenticated, OrderController.stripeCancel);
 app.get('/nets-qr/success', checkAuthenticated, OrderController.finalizeNetsQr);
 app.get('/nets-qr/fail', checkAuthenticated, (req, res) => {
   const pending = req.session && req.session.netsPending;
